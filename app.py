@@ -759,7 +759,7 @@ def create_app(test_config=None):
             condition += " AND business_id = ?"
             params.append(business_id)
         rows = db.execute(
-            f"SELECT substr(created_at, 1, 10) day, COUNT(*) total FROM ledger_entries WHERE {condition} GROUP BY day",
+            f"SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS total FROM ledger_entries WHERE {condition} GROUP BY day",
             params,
         ).fetchall()
         totals = {row["day"]: row["total"] for row in rows}
