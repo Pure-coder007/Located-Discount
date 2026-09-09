@@ -9,9 +9,17 @@
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet">
   <script src="{{ url_for('static', filename='js/password-visibility.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body class="public-body min-h-screen">
+  <div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page">
+    <div class="page-loader-card">
+      <span class="page-loader-mark" aria-hidden="true">LD</span>
+      <span class="page-loader-spinner" aria-hidden="true"></span>
+      <span class="page-loader-copy">Loading</span>
+    </div>
+  </div>
   {% block site_header %}
   <header class="public-header">
     <div class="public-nav-shell">

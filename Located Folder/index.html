@@ -11,8 +11,17 @@
   <link href="{{ url_for('static', filename='css/homepage-scale.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/homepage-products.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/homepage-nav.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
 </head>
 <body>
+  <div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page">
+    <div class="page-loader-card">
+      <span class="page-loader-mark" aria-hidden="true">LD</span>
+      <span class="page-loader-spinner" aria-hidden="true"></span>
+      <span class="page-loader-copy">Loading</span>
+    </div>
+  </div>
   <header class="site-header refreshed-home-nav"><div class="nav-shell"><a class="site-logo" href="{{ url_for('home') }}"><span class="home-logo-mark">LD</span><span>Locatediscount<small>Discover · Save · Redeem</small></span></a><nav class="site-nav"><a class="active" href="{{ url_for('home') }}"><i class="bi bi-compass"></i> Discover</a><a href="{{ url_for('products') }}"><i class="bi bi-bag"></i> Products</a><a href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a><a href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My codes</a>{% if current_user %}<a class="home-nav-cta" href="{{ url_for('dashboard') }}">Dashboard <i class="bi bi-arrow-up-right"></i></a>{% else %}<a href="{{ url_for('login') }}">Business sign in</a><a class="home-nav-cta" href="{{ url_for('register') }}">List a business <i class="bi bi-arrow-up-right"></i></a>{% endif %}</nav></div></header>
   <main>
     {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="home-flash home-flash-{{ category }}"><i class="bi {% if category == 'danger' %}bi-exclamation-octagon{% elif category == 'success' %}bi-check-circle{% elif category == 'warning' %}bi-exclamation-triangle{% else %}bi-info-circle{% endif %}"></i>{{ message }}</div>{% endfor %}{% endwith %}
