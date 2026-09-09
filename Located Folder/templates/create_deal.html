@@ -1,0 +1,30 @@
+{% extends 'portal_base.html' %}
+{% block title %}Create deal | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Offer management{% endblock %}
+{% block portal_title %}Create a deal{% endblock %}
+{% block portal_subtitle %}Publish a clear offer that gives local customers a reason to visit.{% endblock %}
+{% block portal_content %}
+<div class="mx-auto max-w-4xl">
+  <a href="{{ url_for('business_dashboard') }}" class="inline-flex items-center gap-2 text-sm font-extrabold text-pine hover:text-ink"><i class="bi bi-arrow-left"></i> Business dashboard</a>
+  <div class="mt-5 grid gap-6 lg:grid-cols-[1fr_1.8fr]">
+    <aside class="rounded-3xl bg-ink p-7 text-white">
+      <p class="app-label text-mint">Before you publish</p><h1 class="mt-4 font-serif text-3xl font-bold">Make the offer clear.</h1>
+      <p class="mt-4 text-sm leading-6 text-white/70">Your deal appears publicly to local visitors. Give them a simple reason to visit and clear terms they can trust.</p>
+      <div class="mt-8 rounded-2xl bg-white/10 p-5"><p class="text-xs font-extrabold uppercase tracking-wider text-mint">Fee forecast</p><p class="mt-3 text-2xl font-extrabold">₦{{ fee }} <span class="text-sm font-medium text-white/65">per redemption</span></p><p class="mt-2 text-sm text-white/65">At 50 redemptions: ₦{{ '{:,.0f}'.format(fee * 50) }}</p></div>
+    </aside>
+    <section class="app-card p-7 sm:p-9">
+      <p class="app-label">New offer</p><h2 class="mt-2 text-3xl font-extrabold tracking-tight">Create a deal</h2>
+      <form method="post" class="mt-7 grid gap-5 sm:grid-cols-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="sm:col-span-2"><label class="app-label">Deal title</label><input class="app-input" name="title" value="{{ request.form.get('title', '') }}" maxlength="120" required placeholder="e.g. 20% off weekday lunch"></div>
+        <div><label class="app-label">Category</label><select class="app-input" name="category" required><option value="">Choose a category</option>{% for category in categories %}<option {% if request.form.get('category') == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select></div>
+        <div><label class="app-label">Expiry date and time</label><input class="app-input" type="datetime-local" name="expires_at" value="{{ request.form.get('expires_at', '') }}" required></div>
+        <div class="sm:col-span-2"><label class="app-label">Customer-facing description</label><textarea class="app-input min-h-32" name="description" maxlength="1200" required placeholder="Describe what customers get and why it is useful.">{{ request.form.get('description', '') }}</textarea></div>
+        <div><label class="app-label">Maximum redemptions</label><input class="app-input" type="number" name="redemption_limit" value="{{ request.form.get('redemption_limit', '') }}" min="1" max="100000" required placeholder="50"></div>
+        <div class="sm:col-span-2"><label class="app-label">Terms and exclusions</label><textarea class="app-input min-h-28" name="terms" maxlength="1200" required placeholder="State dates, products, and any exclusions.">{{ request.form.get('terms', '') }}</textarea></div>
+        <div class="sm:col-span-2"><button class="app-button w-full" type="submit">Publish this deal <i class="bi bi-send"></i></button></div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

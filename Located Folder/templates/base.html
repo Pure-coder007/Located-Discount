@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Locatediscount{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet">
+  <script src="{{ url_for('static', filename='js/password-visibility.js') }}" defer></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="public-body min-h-screen">
+  {% block site_header %}
+  <header class="public-header">
+    <div class="public-nav-shell">
+      <a href="{{ url_for('home') }}" class="public-brand"><span class="public-brand-mark">LD</span><span>Locatediscount<small>Discover · Save · Redeem</small></span></a>
+      <nav class="public-nav" aria-label="Main navigation">
+        <a class="{% if request.endpoint in ('home', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('home') }}"><i class="bi bi-compass"></i> Discover</a>
+        <a class="{% if request.endpoint in ('products', 'product_detail') %}active{% endif %}" href="{{ url_for('products') }}"><i class="bi bi-bag"></i> Products</a>
+        <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>
+        <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My codes</a>
+      </nav>
+      <div class="public-actions">
+        {% if current_user %}
+          <a class="public-account" href="{{ url_for('dashboard') }}"><span>{{ current_user.name[:1]|upper }}</span><b>{{ current_user.name }}</b><i class="bi bi-arrow-up-right"></i></a>
+        {% else %}
+          <a class="public-signin" href="{{ url_for('login') }}">Business sign in</a>
+          <a class="public-cta" href="{{ url_for('register') }}">List a business <i class="bi bi-arrow-up-right"></i></a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+  {% endblock %}
+  <main class="{% block main_class %}public-main{% endblock %}">
+    {% block flash_messages %}{% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash-message flash-{{ category }} public-flash"><i class="bi {% if category == 'danger' %}bi-exclamation-octagon{% elif category == 'success' %}bi-check-circle{% elif category == 'warning' %}bi-exclamation-triangle{% else %}bi-info-circle{% endif %}"></i><span>{{ message }}</span></div>{% endfor %}{% endwith %}{% endblock %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block site_footer %}
+  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand"><span class="public-brand-mark">LD</span><span>Locatediscount<small>Local discovery made rewarding.</small></span></a><p>Find trusted local products, claim free offer codes, and redeem directly with businesses.</p></div><nav><a href="{{ url_for('products') }}">Products</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My codes</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
+  {% endblock %}
+</body>
+</html>

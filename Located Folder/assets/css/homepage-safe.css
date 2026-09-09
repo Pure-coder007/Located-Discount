@@ -1,0 +1,7 @@
+/* Content must remain visible if optional animation scripts are unavailable. */
+body.index-page [data-aos] {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: none !important;
+  visibility: visible !important;
+}

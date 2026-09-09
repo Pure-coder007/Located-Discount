@@ -1,0 +1,21 @@
+{% extends 'portal_base.html' %}
+{% block title %}Platform analytics | Locatediscount{% endblock %}{% block portal_eyebrow %}Platform intelligence{% endblock %}{% block portal_title %}Analytics{% endblock %}
+{% block portal_subtitle %}Track marketplace growth, redemptions, and revenue from one clear view.{% endblock %}
+{% block portal_content %}
+<section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+  <article class="portal-stat"><div><span class="bg-slate-100"><i class="bi bi-people"></i></span><em>Active</em></div><p>Users</p><strong>{{ summary.active_users }}</strong><small>Active platform accounts</small></article>
+  <article class="portal-stat"><div><span class="bg-slate-100"><i class="bi bi-buildings"></i></span><em>Approved</em></div><p>Businesses</p><strong>{{ summary.approved_businesses }}</strong><small>Approved and unblocked</small></article>
+  <article class="portal-stat"><div><span class="bg-slate-100"><i class="bi bi-ticket"></i></span><em>Live</em></div><p>Deals</p><strong>{{ summary.live_deals }}</strong><small>Currently discoverable</small></article>
+  <article class="portal-stat"><div><span class="bg-slate-100"><i class="bi bi-check2-circle"></i></span><em>All time</em></div><p>Redemptions</p><strong>{{ summary.redemptions }}</strong><small>Successfully validated</small></article>
+  <article class="portal-stat"><div><span class="bg-slate-100"><i class="bi bi-cash-stack"></i></span><em>All time</em></div><p>Revenue</p><strong>₦{{ '{:,.0f}'.format(summary.revenue) }}</strong><small>Redemption fees</small></article>
+</section>
+<div class="mt-5 grid gap-5 xl:grid-cols-2">
+  <section class="portal-panel overflow-hidden"><div class="portal-panel-header"><div><p class="portal-kicker">Last 30 days</p><h2 class="portal-heading">Daily performance</h2></div></div><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="px-6 py-3">Date</th><th class="px-6 py-3">Redemptions</th><th class="px-6 py-3">Revenue</th></tr></thead><tbody class="divide-y divide-slate-100">{% for row in daily %}<tr><td class="px-6 py-4 font-medium">{{ row.day }}</td><td class="px-6 py-4">{{ row.redemptions }}</td><td class="px-6 py-4 font-mono">₦{{ '{:,.0f}'.format(row.revenue) }}</td></tr>{% else %}<tr><td colspan="3" class="px-6 py-10 text-center text-slate-500">No redemptions in this period.</td></tr>{% endfor %}</tbody></table></div></section>
+  <section class="portal-panel overflow-hidden"><div class="portal-panel-header"><div><p class="portal-kicker">Leaderboard</p><h2 class="portal-heading">Top businesses</h2></div></div><div class="divide-y divide-slate-100">{% for row in top_businesses %}<article class="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-6 py-4"><div><p class="text-sm font-semibold">{{ row.name }}</p><p class="text-xs text-slate-500">{{ row.city }}</p></div><p class="text-xs text-slate-500">{{ row.redemptions }} redeemed</p><p class="font-mono text-xs font-semibold">₦{{ '{:,.0f}'.format(row.revenue) }}</p></article>{% endfor %}</div></section>
+</div>
+<section class="portal-panel mt-5 overflow-hidden"><div class="portal-panel-header"><div><p class="portal-kicker">Demand</p><h2 class="portal-heading">Category performance</h2></div></div><div class="grid gap-px bg-slate-100 sm:grid-cols-2 xl:grid-cols-3">{% for row in category_performance %}<article class="bg-white p-6"><p class="font-semibold">{{ row.category }}</p><div class="mt-4 flex gap-6 text-sm text-slate-500"><span><b class="block text-xl text-black">{{ row.deals }}</b> deals</span><span><b class="block text-xl text-black">{{ row.redemptions }}</b> redemptions</span></div></article>{% else %}<p class="bg-white p-6 text-sm text-slate-500">No category data yet.</p>{% endfor %}</div></section>
+{% from '_pagination.html' import pager with context %}
+{{ pager(daily_page, daily_pages, daily_total, 'daily_page', 'daily records') }}
+{{ pager(top_page, top_pages, top_total, 'top_page', 'businesses') }}
+{{ pager(category_page, category_pages, category_total, 'category_page', 'categories') }}
+{% endblock %}

@@ -1,0 +1,11 @@
+{% macro pager(page, total_pages, total, key='page', label='items') -%}
+{% if total_pages > 1 %}
+<nav class="app-pagination" aria-label="{{ label|title }} pages">
+  <p>Page {{ page }} of {{ total_pages }} · {{ total }} {{ label }}</p>
+  <div>
+    {% if page > 1 %}<a href="{{ pagination_url(page - 1, key) }}" rel="prev"><i class="bi bi-arrow-left"></i> Previous</a>{% else %}<span><i class="bi bi-arrow-left"></i> Previous</span>{% endif %}
+    {% if page < total_pages %}<a href="{{ pagination_url(page + 1, key) }}" rel="next">Next <i class="bi bi-arrow-right"></i></a>{% else %}<span>Next <i class="bi bi-arrow-right"></i></span>{% endif %}
+  </div>
+</nav>
+{% endif %}
+{%- endmacro %}

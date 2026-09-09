@@ -1,0 +1,25 @@
+.home-products { padding-top: 42px; padding-bottom: 24px; }
+.home-product-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.home-product-card { display: flex; min-width: 0; overflow: hidden; border: 1px solid var(--line); background: #fff; color: var(--ink); text-decoration: none; transition: transform .2s, border-color .2s, box-shadow .2s; }
+.home-product-card:hover { transform: translateY(-3px); border-color: #bddb66; box-shadow: 0 12px 28px rgba(31,70,50,.1); }
+.home-product-card > img, .home-product-placeholder { width: 104px; min-height: 145px; flex: none; object-fit: cover; }
+.home-product-placeholder { display: grid; place-items: center; background: #eef8d2; color: #326b45; font-size: 25px; }
+.home-product-copy { display: flex; min-width: 0; flex-direction: column; padding: 13px 12px; }
+.home-product-copy small { color: #39734d; font-size: 7px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.home-product-copy strong { overflow: hidden; margin-top: 7px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.home-product-copy em { margin-top: 4px; color: #8a929c; font-size: 8px; font-style: normal; }
+.home-product-copy b { margin-top: 9px; font-size: 11px; }
+.home-product-copy mark { margin-top: auto; padding-top: 9px; background: none; color: #39734d; font-size: 8px; font-weight: 800; }
+.home-product-copy mark.muted { color: #7c8490; }
+.home-product-empty { grid-column: 1 / -1; padding: 30px; border: 1px solid var(--line); text-align: center; }
+.home-product-empty i { display: block; margin-bottom: 10px; color: #8fb04b; font-size: 25px; }
+.home-product-empty strong { font-size: 12px; }
+.home-product-empty p { margin: 7px 0; color: #8a929c; font-size: 10px; }
+.home-product-empty a { color: #294d98; font-size: 10px; font-weight: 800; }
+.deal-row > a { display: block; }
+.deal-row > a > img { display: block; width: 235px; height: 122px; object-fit: cover; }
+@media (max-width: 760px) {
+  .home-product-grid { grid-template-columns: 1fr; }
+  .home-product-card > img, .home-product-placeholder { width: 118px; }
+  .deal-row > a > img { width: 120px; height: 104px; }
+}

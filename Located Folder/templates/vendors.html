@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Local vendors | Locatediscount{% endblock %}
+{% block content %}
+<section class="public-page-hero">
+  <div><p class="app-label">Approved businesses</p><h1 class="mt-2 font-extrabold">Trusted vendors around you.</h1><p class="mt-2 max-w-2xl text-sm text-slate-500">Find local businesses, browse their catalogues, and claim currently available offers.</p>
+    <form class="public-search" method="get"><input name="q" value="{{ query }}" placeholder="Vendor name or category"><input name="area" value="{{ area }}" placeholder="City or area"><button type="submit"><i class="bi bi-search"></i> Find vendors</button></form>
+  </div><span class="hero-icon"><i class="bi bi-shop"></i></span>
+</section>
+<div class="mt-7 flex items-end justify-between gap-4"><div><p class="app-label">Business directory</p><h2 class="mt-1 text-xl font-extrabold">{{ total }} vendor{% if total != 1 %}s{% endif %} found</h2></div>{% if query or area %}<a class="text-xs font-extrabold text-pine" href="{{ url_for('vendors') }}">Clear search <i class="bi bi-x-circle"></i></a>{% endif %}</div>
+<section class="public-card-grid">
+  {% for vendor in vendors %}<a class="catalog-card" href="{{ url_for('vendor_detail', business_id=vendor.id) }}"><span class="catalog-media"><i class="bi bi-shop-window"></i></span><span class="catalog-body"><span class="catalog-kicker">{{ vendor.category }}</span><strong class="catalog-title">{{ vendor.name }}</strong><span class="catalog-copy"><i class="bi bi-geo-alt"></i> {{ vendor.address }}, {{ vendor.city }}</span><span class="catalog-meta"><span><b class="catalog-price">{{ vendor.product_count }}</b> <small>products</small> · <b class="catalog-price">{{ vendor.live_deal_count }}</b> <small>offers</small></span><span class="catalog-link">Open vendor <i class="bi bi-arrow-right"></i></span></span></span></a>
+  {% else %}<div class="empty-state"><i class="bi bi-shop"></i><h2>No vendors match yet</h2><p>Try a different business name, category, city, or area.</p></div>{% endfor %}
+</section>
+{% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='vendors') }}
+{% endblock %}

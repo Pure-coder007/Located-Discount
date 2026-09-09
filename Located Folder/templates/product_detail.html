@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}{{ product.name }} | Locatediscount{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-6xl">
+  <a href="{{ url_for('products') }}" class="text-sm font-extrabold text-pine hover:text-ink"><i class="bi bi-arrow-left"></i> Local products</a>
+  <section class="app-card mt-5 overflow-hidden">
+    <div class="grid lg:grid-cols-[1.1fr_.9fr]">
+      <div class="bg-slate-100 p-4 sm:p-6">
+        {% if images %}
+          <div class="grid gap-3 {% if images|length > 1 %}sm:grid-cols-2{% endif %}">
+            {% for image in images %}
+              <a class="group block overflow-hidden rounded-2xl bg-white {% if loop.first and images|length > 2 %}sm:col-span-2{% endif %}" href="{{ product_image_url(image) }}" target="_blank" rel="noopener">
+                <img class="h-56 w-full object-cover transition duration-300 group-hover:scale-105 {% if loop.first and images|length > 2 %}sm:h-80{% endif %}" src="{{ product_image_url(image) }}" alt="{{ product.name }} image {{ loop.index }}">
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="grid min-h-80 place-items-center rounded-2xl bg-pine text-center text-white"><div><i class="bi bi-image text-5xl text-mint"></i><p class="mt-4 text-sm font-bold text-white/75">Images coming soon</p></div></div>
+        {% endif %}
+      </div>
+      <div class="p-8 sm:p-10">
+        <p class="app-label">{{ product.business_name }} · {{ product.city }}</p>
+        <h1 class="mt-3 font-serif text-4xl font-bold text-ink">{{ product.name }}</h1>
+        <p class="mt-5 font-mono text-2xl font-bold text-pine">₦{{ '{:,.2f}'.format(product.price_kobo / 100) }}</p>
+        <p class="mt-7 text-base leading-8 text-slate-600">{{ product.description }}</p>
+        {% if deals %}<a class="app-button mt-7" href="#available-offers">Choose offer and generate code <i class="bi bi-ticket-perforated"></i></a>{% endif %}
+        {% if product.product_url %}<a class="mt-4 inline-flex text-sm font-extrabold text-pine" target="_blank" rel="noopener noreferrer" href="{{ product.product_url }}">Open vendor product link <i class="bi bi-box-arrow-up-right ml-2"></i></a>{% endif %}
+      </div>
+    </div>
+  </section>
+  <section class="mt-8 grid gap-6 lg:grid-cols-[1fr_.9fr]">
+    <article class="rounded-3xl bg-ink p-7 text-white"><p class="app-label text-mint">Visit this vendor</p><h2 class="mt-3 text-2xl font-extrabold">{{ product.business_name }}</h2><p class="mt-4 text-sm leading-6 text-white/70"><i class="bi bi-geo-alt text-mint"></i> {{ product.address }}, {{ product.city }}</p><a class="app-button-light mt-7" href="{{ url_for('vendor_detail', business_id=product.business_id) }}">View vendor and products <i class="bi bi-arrow-right"></i></a></article>
+    <article class="app-card p-7"><p class="app-label">How it works</p><ol class="mt-4 space-y-4 text-sm leading-6 text-slate-600"><li><strong class="text-ink">1. Choose an offer below.</strong> Generate its unique code free of charge.</li><li><strong class="text-ink">2. Show the code in-store.</strong> Ask the vendor to apply the discount first.</li><li><strong class="text-ink">3. Let the vendor validate it.</strong> Each code works once and only at this vendor.</li></ol></article>
+  </section>
+  <section id="available-offers" class="mt-8 scroll-mt-6">
+    <p class="app-label">Available at this vendor</p><h2 class="mt-2 text-3xl font-extrabold">Choose an offer for this product visit</h2>
+    <div class="mt-5 grid gap-4 md:grid-cols-3">
+      {% for deal in deals %}
+        <article class="app-card flex flex-col p-6"><p class="font-extrabold text-ink">{{ deal.title }}</p><p class="mt-3 text-sm text-slate-500">Expires {{ deal.expires_at[:10] }}</p><div class="mt-auto grid gap-2 pt-5"><a class="app-button justify-center" href="{{ url_for('claim_code', deal_id=deal.id) }}"><i class="bi bi-qr-code"></i> Generate code</a><a class="text-center text-xs font-extrabold text-pine" href="{{ url_for('deal_detail', deal_id=deal.id) }}">View offer terms</a></div></article>
+      {% else %}
+        <div class="app-card col-span-full p-8 text-center"><i class="bi bi-ticket-perforated text-3xl text-slate-300"></i><h3 class="mt-3 font-extrabold">No active offer right now</h3><p class="mt-2 text-sm text-slate-500">You can still view the product and contact or visit the vendor.</p></div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

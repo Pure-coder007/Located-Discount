@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.env
+instance/*.sqlite3
+instance/*.sqlite3-*
+.DS_Store
+README.md

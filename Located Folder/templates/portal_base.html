@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block main_class %}min-h-screen p-0{% endblock %}
+{% block site_header %}{% endblock %}
+{% block site_footer %}{% endblock %}
+{% block flash_messages %}{% endblock %}
+{% block content %}
+<div class="portal-shell min-h-screen bg-[#f5f5f5] p-3 sm:p-5 lg:p-7">
+  <div class="mx-auto grid max-w-[100rem] gap-5 lg:grid-cols-[15.5rem_minmax(0,1fr)]">
+    <aside class="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(0,0,0,.04)] lg:sticky lg:top-7 lg:h-[calc(100vh-3.5rem)]">
+      <a href="{{ url_for('dashboard') }}" class="flex items-center gap-3 rounded-2xl px-3 py-3 text-ink">
+        <span class="grid h-10 w-10 place-items-center rounded-xl bg-black text-sm font-semibold text-white shadow-sm">LD</span>
+        <span><span class="block text-base font-extrabold tracking-tight">Locatediscount</span><span class="block text-[11px] font-semibold text-slate-500">{% if current_user.role == 'admin' %}Platform control{% else %}Business workspace{% endif %}</span></span>
+      </a>
+      <div class="mt-5 border-t border-slate-200 pt-5">
+        <p class="px-3 text-[10px] font-extrabold uppercase tracking-[.18em] text-slate-400">Workspace</p>
+        <nav class="mt-3 space-y-1.5">
+          {% if current_user.role == 'admin' %}
+          <a href="{{ url_for('admin_dashboard') }}" class="portal-nav {% if request.endpoint == 'admin_dashboard' %}portal-nav-active{% endif %}"><i class="bi bi-grid-1x2"></i> Dashboard</a>
+          <a href="{{ url_for('admin_businesses') }}" class="portal-nav {% if request.endpoint == 'admin_businesses' %}portal-nav-active{% endif %}"><i class="bi bi-buildings"></i> Business review</a>
+          <a href="{{ url_for('admin_analytics') }}" class="portal-nav {% if request.endpoint == 'admin_analytics' %}portal-nav-active{% endif %}"><i class="bi bi-bar-chart"></i> Analytics</a>
+          <a href="{{ url_for('admin_categories') }}" class="portal-nav {% if request.endpoint in ('admin_categories', 'toggle_category') %}portal-nav-active{% endif %}"><i class="bi bi-tags"></i> Categories</a>
+          <a href="{{ url_for('admin_team') }}" class="portal-nav {% if request.endpoint in ('admin_team', 'toggle_admin') %}portal-nav-active{% endif %}"><i class="bi bi-people"></i> Admin team</a>
+          <a href="{{ url_for('admin_audit_logs') }}" class="portal-nav {% if request.endpoint == 'admin_audit_logs' %}portal-nav-active{% endif %}"><i class="bi bi-shield-check"></i> Audit logs</a>
+          <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
+          {% else %}
+          <a href="{{ url_for('business_dashboard') }}" class="portal-nav {% if request.endpoint == 'business_dashboard' %}portal-nav-active{% endif %}"><i class="bi bi-grid-1x2"></i> Overview</a>
+          <a href="{{ url_for('create_deal') }}" class="portal-nav {% if request.endpoint == 'create_deal' %}portal-nav-active{% endif %}"><i class="bi bi-ticket-perforated"></i> Create a deal</a>
+          <a href="{{ url_for('business_products') }}" class="portal-nav {% if request.endpoint == 'business_products' %}portal-nav-active{% endif %}"><i class="bi bi-box-seam"></i> Product catalogue</a>
+          <a href="{{ url_for('business_analytics') }}" class="portal-nav {% if request.endpoint == 'business_analytics' %}portal-nav-active{% endif %}"><i class="bi bi-graph-up"></i> Analytics</a>
+          <a href="{{ url_for('wallet') }}" class="portal-nav {% if request.endpoint == 'wallet' %}portal-nav-active{% endif %}"><i class="bi bi-wallet2"></i> Wallet</a>
+          <a href="{{ url_for('redeem') }}" class="portal-nav {% if request.endpoint == 'redeem' %}portal-nav-active{% endif %}"><i class="bi bi-qr-code-scan"></i> Redeem code</a>
+          <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
+          {% endif %}
+        </nav>
+      </div>
+      <div class="mt-7 rounded-2xl bg-white/70 p-4 lg:mt-auto">
+        <div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-mint text-sm font-extrabold text-pine">{{ current_user.name[:1]|upper }}</span><div class="min-w-0"><p class="truncate text-sm font-extrabold text-ink">{{ current_user.name }}</p><p class="truncate text-[11px] font-semibold text-slate-500">{{ current_user.role|title }}</p></div></div>
+        <a href="{{ url_for('change_password') }}" class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-slate-400 hover:text-black"><i class="bi bi-key"></i> Change password</a>
+        <form method="post" action="{{ url_for('logout') }}" class="mt-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-extrabold text-slate-700 transition hover:border-black hover:bg-black hover:text-white" type="submit"><i class="bi bi-box-arrow-right"></i> Sign out</button></form>
+      </div>
+    </aside>
+    <div class="min-w-0">
+      <header class="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_6px_20px_rgba(0,0,0,.035)] sm:flex-row sm:items-center sm:justify-between sm:px-8">
+        <div><p class="text-[10px] font-extrabold uppercase tracking-[.18em] text-pine">{% block portal_eyebrow %}Workspace{% endblock %}</p><h1 class="mt-1 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">{% block portal_title %}Dashboard{% endblock %}</h1><p class="mt-1 text-sm text-slate-500">{% block portal_subtitle %}Everything important, in one place.{% endblock %}</p></div>
+        <div class="flex items-center gap-2.5"><a href="{{ url_for('home') }}" class="hidden items-center rounded-lg px-3 py-2 text-xs font-semibold text-pine hover:bg-blue-50 sm:inline-flex">View marketplace</a>{% block portal_actions %}{% endblock %}</div>
+      </header>
+      {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash-message flash-{{ category }} mt-5"><i class="bi {% if category == 'danger' %}bi-exclamation-octagon{% elif category == 'success' %}bi-check-circle{% elif category == 'warning' %}bi-exclamation-triangle{% else %}bi-info-circle{% endif %}"></i><span>{{ message }}</span></div>{% endfor %}{% endwith %}
+      <div class="mt-5">{% block portal_content %}{% endblock %}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

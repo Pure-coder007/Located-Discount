@@ -1,0 +1,306 @@
+{% extends 'portal_base.html' %} {% block title %}Admin command centre |
+Locatediscount{% endblock %} {% block portal_eyebrow %}Platform administration{%
+endblock %} {% block portal_title %}Hello, {{ current_user.name.split(' ')[0]
+}}{% endblock %} {% block portal_subtitle %}Review businesses, verify funding,
+and keep every redemption accountable.{% endblock %} {% block portal_actions
+%}<a
+  href="{{ url_for('admin_businesses') }}"
+  class="inline-flex items-center gap-2 rounded-xl bg-pine px-4 py-3 text-xs font-extrabold text-white shadow-lg shadow-pine/20 transition hover:bg-ink"
+  ><i class="bi bi-buildings"></i> Review businesses{% if pending_business_count
+  %}<span
+    class="grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-[10px] text-pine"
+    >{{ pending_business_count }}</span
+  >{% endif %}</a
+>{% endblock %} {% block portal_content %}
+<section
+  class="overflow-hidden rounded-[2rem] border border-[#dce6fb] bg-white p-4 shadow-[0_16px_40px_rgba(55,90,158,.08)] sm:p-6"
+>
+  <div
+    class="grid gap-8 rounded-[1.55rem] border border-[#d5e2fb] bg-[#eaf1ff] px-6 py-7 xl:grid-cols-[1.45fr_.75fr] xl:items-center sm:px-8 sm:py-9"
+  >
+    <div>
+      <span
+        class="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[.15em] text-pine"
+        >Platform performance snapshot</span
+      >
+      <h2
+        class="mt-4 max-w-2xl text-3xl font-extrabold leading-tight tracking-tight text-ink sm:text-4xl"
+      >
+        Everything important is visible at a glance.
+      </h2>
+      <p class="mt-3 max-w-xl text-sm leading-7 text-slate-500">
+        Approve trusted vendors, keep wallet funding moving, and make every
+        customer redemption traceable from one secure workspace.
+      </p>
+    </div>
+    <div class="grid grid-cols-3 gap-3 text-center">
+      <a href="{{ url_for('admin_businesses') }}" class="portal-action"
+        ><span class="bg-blue-50 text-pine"
+          ><i class="bi bi-buildings"></i></span
+        ><b>Review</b><small>Businesses</small></a
+      ><a href="{{ url_for('admin_analytics') }}" class="portal-action"
+        ><span class="bg-slate-100 text-black"
+          ><i class="bi bi-bar-chart"></i></span
+        ><b>Explore</b><small>Analytics</small></a
+      ><a href="{{ url_for('admin_audit_logs') }}" class="portal-action"
+        ><span class="bg-slate-100 text-black"
+          ><i class="bi bi-shield-check"></i></span
+        ><b>Review</b><small>Audit logs</small></a
+      >
+    </div>
+  </div>
+</section>
+<section class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+  <a class="portal-panel flex items-center gap-4 p-5 transition hover:border-slate-400" href="{{ url_for('admin_categories') }}"><span class="portal-icon bg-slate-100 text-black"><i class="bi bi-tags"></i></span><span><b class="block text-sm font-semibold">Manage categories</b><small class="text-xs text-slate-500">Add or archive options</small></span></a>
+  <a class="portal-panel flex items-center gap-4 p-5 transition hover:border-slate-400" href="{{ url_for('admin_team') }}"><span class="portal-icon bg-slate-100 text-black"><i class="bi bi-people"></i></span><span><b class="block text-sm font-semibold">Admin team</b><small class="text-xs text-slate-500">Create sub-admins</small></span></a>
+  <a class="portal-panel flex items-center gap-4 p-5 transition hover:border-slate-400" href="{{ url_for('admin_analytics') }}"><span class="portal-icon bg-slate-100 text-black"><i class="bi bi-graph-up"></i></span><span><b class="block text-sm font-semibold">Platform analytics</b><small class="text-xs text-slate-500">Measure performance</small></span></a>
+  <a class="portal-panel flex items-center gap-4 p-5 transition hover:border-slate-400" href="{{ url_for('admin_audit_logs') }}"><span class="portal-icon bg-slate-100 text-black"><i class="bi bi-journal-check"></i></span><span><b class="block text-sm font-semibold">Audit trail</b><small class="text-xs text-slate-500">Review admin actions</small></span></a>
+</section>
+<section class="portal-panel mt-5 p-6"><div class="flex items-center justify-between"><div><p class="portal-kicker">Seven-day trend</p><h2 class="portal-heading">Platform redemptions</h2></div><a class="text-xs font-semibold text-slate-500 hover:text-black" href="{{ url_for('admin_analytics') }}">Full analytics <i class="bi bi-arrow-right"></i></a></div><div class="chart-grid mt-6" role="img" aria-label="Platform redemptions over the last seven days">{% for point in chart %}<div class="chart-column"><span class="chart-value">{{ point.total }}</span><div class="chart-track"><span class="chart-bar chart-level-{{ point.level }}"></span></div><span class="chart-label">{{ point.day[5:] }}</span></div>{% endfor %}</div></section>
+<section class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  <a href="{{ url_for('admin_businesses') }}" class="portal-stat group"
+    ><div>
+      <span class="bg-amber-50 text-amber-600"
+        ><i class="bi bi-hourglass-split"></i></span
+      ><i class="bi bi-arrow-up-right text-slate-300 group-hover:text-pine"></i>
+    </div>
+    <p>Pending review</p>
+    <strong>{{ pending_business_count }}</strong
+    ><small>Businesses awaiting action</small></a
+  >
+  <article class="portal-stat">
+    <div>
+      <span class="bg-blue-50 text-pine"><i class="bi bi-cash-stack"></i></span
+      ><em>All time</em>
+    </div>
+    <p>Platform wallet</p>
+    <strong>₦{{ '{:,.0f}'.format(revenue) }}</strong
+    ><small>Credited from verified redemption fees</small>
+  </article>
+  <article class="portal-stat">
+    <div>
+      <span class="bg-violet-50 text-violet-700"
+        ><i class="bi bi-shop-window"></i></span
+      ><em>Network</em>
+    </div>
+    <p>Businesses</p>
+    <strong>{{ business_total }}</strong
+    ><small>Registered on the platform</small>
+  </article>
+  <article class="portal-stat">
+    <div>
+      <span class="bg-emerald-50 text-emerald-700"
+        ><i class="bi bi-patch-check"></i></span
+      ><em>Verified</em>
+    </div>
+    <p>Redemptions</p>
+    <strong>{{ redemption_count }}</strong
+    ><small>Codes honoured in-store</small>
+  </article>
+</section>
+<section class="mt-5 grid gap-5 xl:grid-cols-[.82fr_1.18fr]">
+  <div class="space-y-5">
+    <section class="portal-panel p-6">
+      <div class="flex items-center gap-3">
+        <span class="portal-icon bg-blue-50 text-pine"
+          ><i class="bi bi-sliders2-vertical"></i
+        ></span>
+        <div>
+          <p class="portal-kicker">Fee rule</p>
+          <h2 class="portal-heading">Default redemption fee</h2>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('update_fee_rule') }}" class="mt-5">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="fee" class="text-xs font-semibold text-slate-600">Applied to future verified redemptions</label>
+        <div class="mt-2 grid gap-3 sm:grid-cols-[1fr_auto]">
+          <div class="money-input"><span>₦</span><input id="fee" type="number" name="fee" min="1" max="100000" step="1" value="{{ fee }}" required aria-describedby="fee-help"></div>
+          <button class="rounded-xl bg-pine px-5 py-3 text-xs font-semibold text-white transition hover:bg-ink" type="submit"><i class="bi bi-check2"></i> Save rate</button>
+        </div>
+        <p id="fee-help" class="mt-2 text-[10px] text-slate-500">Whole naira amount charged after each successful redemption.</p>
+      </form>
+    </section>
+    <section id="funding-queue" class="portal-panel overflow-hidden">
+      <div class="portal-panel-header">
+        <div>
+          <p class="portal-kicker">Funding queue</p>
+          <h2 class="portal-heading">Wallet top-ups</h2>
+        </div>
+        <span class="portal-icon bg-emerald-50 text-emerald-700"
+          ><i class="bi bi-wallet2"></i
+        ></span>
+      </div>
+      <div class="divide-y divide-slate-100">
+        {% for topup in topups %}
+        <article class="px-6 py-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-extrabold text-ink">
+                {{ topup.business_name }}
+              </p>
+              <p class="mt-1 font-mono text-[11px] text-slate-400">
+                {{ topup.reference }}
+              </p>
+            </div>
+            <p
+              class="rounded-xl bg-emerald-50 px-3 py-2 font-mono text-xs font-extrabold text-emerald-700"
+            >
+              ₦{{ '{:,.0f}'.format(topup.amount) }}
+            </p>
+          </div>
+          <form
+            method="post"
+            action="{{ url_for('approve_topup', transaction_id=topup.id) }}"
+            class="mt-3"
+          >
+            <input
+              type="hidden"
+              name="csrf_token"
+              value="{{ csrf_token }}"
+            /><button
+              class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-extrabold text-emerald-800 hover:bg-emerald-100"
+              type="submit"
+            >
+              Approve verified top-up
+            </button>
+          </form>
+        </article>
+        {% else %}
+        <div class="px-6 py-10 text-center">
+          <i class="bi bi-check2-all text-3xl text-emerald-500"></i>
+          <p class="mt-3 text-sm font-extrabold text-ink">
+            Funding queue is clear.
+          </p>
+          <p class="mt-1 text-xs text-slate-500">No top-ups await review.</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% if topup_pages > 1 %}<nav class="pagination-bar">{% if topup_page > 1 %}<a href="{{ url_for('admin_dashboard', topup_page=topup_page-1, ledger_page=ledger_page, wallet_page=wallet_page) }}#funding-queue">Previous</a>{% else %}<span></span>{% endif %}<small>{{ topup_page }} / {{ topup_pages }}</small>{% if topup_page < topup_pages %}<a href="{{ url_for('admin_dashboard', topup_page=topup_page+1, ledger_page=ledger_page, wallet_page=wallet_page) }}#funding-queue">Next</a>{% endif %}</nav>{% endif %}
+    </section>
+  </div>
+  <section id="ledger" class="portal-panel overflow-hidden">
+    <div class="portal-panel-header">
+      <div>
+        <p class="portal-kicker">Immutable record</p>
+        <h2 class="portal-heading">Live redemption ledger</h2>
+      </div>
+      <span
+        class="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-extrabold text-pine"
+        >Latest activity</span
+      >
+    </div>
+    <div class="divide-y divide-slate-100">
+      {% for entry in ledger %}
+      <article
+        class="flex items-center gap-3 px-6 py-4 transition hover:bg-blue-50/40"
+      >
+        <span class="portal-icon h-10 w-10 bg-slate-100 text-pine"
+          ><i class="bi bi-ticket-perforated"></i
+        ></span>
+        <div class="min-w-0 flex-1">
+          <p class="font-mono text-xs font-extrabold text-ink">
+            {{ entry.code }}
+          </p>
+          <p class="mt-1 truncate text-xs text-slate-500">
+            {{ entry.business_name }}
+            <span class="px-1 text-slate-300">/</span> {{ entry.title }}
+          </p>
+          <p class="mt-1 text-[10px] text-slate-400">
+            {{ entry.created_at[:16].replace('T', ' ') }}
+          </p>
+        </div>
+        <p
+          class="rounded-xl bg-red-50 px-2.5 py-2 font-mono text-xs font-extrabold text-coral"
+        >
+          -₦{{ entry.fee_charged }}
+        </p>
+      </article>
+      {% else %}
+      <div class="grid min-h-[19rem] place-items-center px-6 text-center">
+        <div>
+          <span
+            class="mx-auto grid h-14 w-14 place-items-center rounded-3xl bg-blue-50 text-2xl text-pine"
+            ><i class="bi bi-receipt"></i
+          ></span>
+          <p class="mt-4 font-extrabold text-ink">The ledger is ready.</p>
+          <p class="mt-2 max-w-xs text-sm leading-6 text-slate-500">
+            Validated customer codes will appear here with their exact fee and
+            timestamp.
+          </p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if ledger_pages > 1 %}<nav class="pagination-bar">{% if ledger_page > 1 %}<a href="{{ url_for('admin_dashboard', ledger_page=ledger_page-1, topup_page=topup_page, wallet_page=wallet_page) }}#ledger">Previous</a>{% else %}<span></span>{% endif %}<small>{{ ledger_page }} / {{ ledger_pages }}</small>{% if ledger_page < ledger_pages %}<a href="{{ url_for('admin_dashboard', ledger_page=ledger_page+1, topup_page=topup_page, wallet_page=wallet_page) }}#ledger">Next</a>{% endif %}</nav>{% endif %}
+  </section>
+</section>
+<section class="portal-panel mt-5 overflow-hidden">
+  <div
+    class="flex flex-col gap-3 border-b border-slate-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between"
+  >
+    <div>
+      <p class="portal-kicker">Wallet controls</p>
+      <h2 class="portal-heading">Business balances</h2>
+    </div>
+    <a
+      href="{{ url_for('admin_businesses') }}"
+      class="inline-flex w-fit items-center gap-2 rounded-xl border border-[#cddcff] bg-blue-50 px-3 py-2 text-xs font-extrabold text-pine hover:bg-pine hover:text-white"
+      >Manage approvals <i class="bi bi-arrow-right"></i
+    ></a>
+  </div>
+  <div class="divide-y divide-slate-100">
+    {% for business in businesses %}
+    <article
+      class="grid gap-4 px-6 py-5 xl:grid-cols-[minmax(12rem,1fr)_8rem_minmax(25rem,1.35fr)] xl:items-center"
+    >
+      <div class="flex items-center gap-3">
+        <span
+          class="portal-icon {% if business.needs_top_up %}bg-red-50 text-coral{% else %}bg-blue-50 text-pine{% endif %}"
+          ><i class="bi bi-shop"></i
+        ></span>
+        <div>
+          <p class="text-sm font-extrabold text-ink">{{ business.name }}</p>
+          <p class="mt-0.5 text-xs text-slate-500">
+            {{ business.city }}{% if business.needs_top_up %}
+            <span class="font-bold text-coral">· Needs top-up</span>{% endif %}
+          </p>
+        </div>
+      </div>
+      <p class="font-mono text-base font-extrabold text-ink">
+        ₦{{ '{:,.0f}'.format(business.wallet_balance) }}
+      </p>
+      <form
+        method="post"
+        action="{{ url_for('adjust_wallet', business_id=business.id) }}"
+        class="grid gap-2 sm:grid-cols-[7rem_minmax(10rem,1fr)_auto]"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input
+          class="portal-input"
+          name="amount"
+          type="number"
+          placeholder="+/- ₦"
+          required
+        /><input
+          class="portal-input"
+          name="note"
+          maxlength="250"
+          minlength="5"
+          placeholder="Reason for adjustment"
+          required
+        /><button
+          class="rounded-xl bg-ink px-3 py-2.5 text-xs font-extrabold text-white hover:bg-pine"
+          type="submit"
+        >
+          Record
+        </button>
+      </form>
+    </article>
+    {% else %}
+    <p class="px-6 py-12 text-center text-sm text-slate-500">
+      No registered businesses yet.
+    </p>
+    {% endfor %}
+  </div>
+  {% if wallet_pages > 1 %}<nav class="pagination-bar">{% if wallet_page > 1 %}<a href="{{ url_for('admin_dashboard', wallet_page=wallet_page-1, topup_page=topup_page, ledger_page=ledger_page) }}">Previous</a>{% else %}<span></span>{% endif %}<small>{{ wallet_page }} / {{ wallet_pages }}</small>{% if wallet_page < wallet_pages %}<a href="{{ url_for('admin_dashboard', wallet_page=wallet_page+1, topup_page=topup_page, ledger_page=ledger_page) }}">Next</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

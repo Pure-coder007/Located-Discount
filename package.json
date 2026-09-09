@@ -1,0 +1,11 @@
+{
+  "name": "locatediscount",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets-src/tailwind.css -o './Located Folder/assets/css/app.css' --minify",
+    "watch:css": "tailwindcss -i ./assets-src/tailwind.css -o './Located Folder/assets/css/app.css' --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

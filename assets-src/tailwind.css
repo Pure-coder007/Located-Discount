@@ -1,0 +1,235 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-cream font-sans text-ink antialiased; }
+
+  /* Keep every editable form control clearly defined across the application. */
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
+  select,
+  textarea {
+    border-width: 1px !important;
+    border-style: solid !important;
+    border-color: #cbd5e1 !important;
+    background-color: #fff;
+    box-shadow: 0 1px 2px rgb(15 23 42 / .04);
+    transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+  }
+
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):hover,
+  select:hover,
+  textarea:hover {
+    border-color: #94a3b8 !important;
+  }
+
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):focus,
+  select:focus,
+  textarea:focus {
+    border-color: #171717 !important;
+    box-shadow: 0 0 0 3px rgb(23 23 23 / .09), 0 1px 2px rgb(15 23 42 / .05) !important;
+    outline: none;
+  }
+}
+
+@layer components {
+  .password-field { @apply relative; }
+  .password-field > input { @apply pr-12; }
+  .password-visibility-toggle { @apply absolute bottom-0 right-0 grid h-12 w-12 place-items-center rounded-r-xl text-base text-slate-500 transition hover:text-black focus:outline-none focus:ring-2 focus:ring-inset focus:ring-black/20; }
+  .flash-message { @apply flex items-center gap-3 rounded-xl border px-4 py-3 text-xs font-semibold shadow-sm; }
+  .flash-success { @apply border-emerald-200 bg-emerald-50 text-emerald-800; }
+  .flash-danger { @apply border-red-200 bg-red-50 text-red-800; }
+  .flash-warning { @apply border-amber-200 bg-amber-50 text-amber-800; }
+  .flash-info { @apply border-blue-200 bg-blue-50 text-blue-800; }
+  .portal-shell .flash-success { background:#ecfdf5 !important; border-color:#a7f3d0 !important; color:#065f46 !important; }
+  .portal-shell .flash-danger { background:#fef2f2 !important; border-color:#fecaca !important; color:#991b1b !important; }
+  .portal-shell .flash-warning { background:#fffbeb !important; border-color:#fde68a !important; color:#92400e !important; }
+  .portal-shell .flash-info { background:#eff6ff !important; border-color:#bfdbfe !important; color:#1e40af !important; }
+  .portal-shell {
+    color: #17372d;
+    background-color: #f7faef !important;
+  }
+  .portal-shell .bg-pine { background-color:#176b45 !important; }
+  .portal-shell .bg-blue-50 { background-color:#eef6ff !important; }
+  .portal-shell .bg-emerald-50 { background-color:#eaf8ee !important; }
+  .portal-shell .bg-violet-50 { background-color:#f3efff !important; }
+  .portal-shell .bg-red-50 { background-color:#fff0ed !important; }
+  .portal-shell .bg-slate-100 { background-color:#f0f4e8 !important; }
+  .portal-shell .bg-ink { background-color:#17372d !important; }
+  .portal-shell .bg-mint { background-color:#dffc6b !important; }
+  .portal-shell .text-pine { color:#176b45 !important; }
+  .portal-shell .text-emerald-700, .portal-shell .text-emerald-800, .portal-shell .text-emerald-500 { color:#137a49 !important; }
+  .portal-shell .text-violet-700 { color:#7251b5 !important; }
+  .portal-shell .text-coral, .portal-shell .text-red-700 { color:#c34c3f !important; }
+  .portal-shell .text-amber-600, .portal-shell .text-amber-800 { color:#9a6500 !important; }
+  .portal-shell .text-ink { color:#17372d !important; }
+  .portal-shell .text-slate-400,
+  .portal-shell .text-slate-500,
+  .portal-shell .text-slate-600 {
+    color: #71717a !important;
+  }
+  .portal-shell .border-blue-100,
+  .portal-shell .border-emerald-200,
+  .portal-shell .border-red-200,
+  .portal-shell .border-[#dce6fb],
+  .portal-shell .border-[#d5e2fb],
+  .portal-shell .border-[#e0e8f8],
+  .portal-shell .border-[#d9e3f8],
+  .portal-shell .border-[#cddcff] {
+    border-color: #dce8c8 !important;
+  }
+  .portal-shell .hover\:bg-pine:hover {
+    background-color: #105437 !important;
+    color: #fff !important;
+  }
+  .portal-shell .hover\:bg-ink:hover {
+    background-color: #171510 !important;
+  }
+  .portal-shell .hover\:text-pine:hover {
+    color: #18181b !important;
+  }
+  .portal-shell .focus\:border-pine:focus {
+    border-color: #18181b !important;
+  }
+  .portal-shell .focus\:ring-mint\/40:focus,
+  .portal-shell .focus\:ring-pine:focus {
+    --tw-ring-color: rgb(24 24 27 / .10) !important;
+  }
+  .portal-shell button[type="submit"],
+  .portal-shell a.bg-pine,
+  .portal-shell a.bg-mint,
+  .portal-shell .app-button,
+  .portal-shell .app-button-light {
+    background-color: #176b45 !important;
+    color: #fff !important;
+  }
+  .portal-shell button[type="submit"]:hover,
+  .portal-shell a.bg-pine:hover,
+  .portal-shell a.bg-mint:hover,
+  .portal-shell .app-button:hover,
+  .portal-shell .app-button-light:hover {
+    background-color: #105437 !important;
+    color: #fff !important;
+  }
+  .portal-shell [class*="bg-[#eaf1ff]"],
+  .portal-shell [class*="bg-[#f8faff]"] {
+    background-color: #f3f9df !important;
+  }
+  [class*="bg-[linear-gradient"] {
+    @apply border border-slate-200 bg-slate-50;
+    background-image: none !important;
+  }
+  .portal-nav {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-500 transition hover:bg-white/80 hover:text-pine active:scale-[.98];
+  }
+  .portal-nav-active {
+    @apply bg-slate-100 font-semibold text-black shadow-sm ring-1 ring-slate-200;
+  }
+  .portal-panel {
+    @apply rounded-2xl border border-[#dce6fb] bg-white shadow-[0_8px_20px_rgba(55,90,158,.05)];
+  }
+  .portal-panel-header {
+    @apply flex items-center justify-between border-b border-slate-100 px-6 py-5;
+  }
+  .portal-icon {
+    @apply grid h-9 w-9 place-items-center rounded-xl;
+  }
+  .portal-kicker {
+    @apply text-[10px] font-semibold uppercase tracking-[.14em] text-pine;
+  }
+  .portal-heading {
+    @apply mt-1 text-lg font-semibold text-ink;
+  }
+  .portal-input {
+    @apply rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-black focus:bg-white focus:ring-4 focus:ring-black/10;
+  }
+  .portal-action {
+    @apply rounded-xl bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:scale-[.98];
+  }
+  .portal-action > span {
+    @apply mx-auto grid h-9 w-9 place-items-center rounded-xl text-base;
+  }
+  .portal-action b {
+    @apply mt-2 block text-xs font-semibold text-ink;
+  }
+  .portal-action small {
+    @apply mt-1 block text-[11px] text-slate-400;
+  }
+  .portal-stat {
+    @apply rounded-2xl border border-[#dce6fb] bg-white p-5 shadow-[0_8px_20px_rgba(55,90,158,.05)] transition hover:-translate-y-0.5 hover:border-[#b8cef9] hover:shadow-[0_12px_24px_rgba(55,90,158,.10)] active:translate-y-0 active:scale-[.99];
+  }
+  .portal-stat > div {
+    @apply flex items-start justify-between;
+  }
+  .portal-stat > div > span {
+    @apply grid h-9 w-9 place-items-center rounded-xl text-base;
+  }
+  .portal-stat em {
+    @apply rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold not-italic text-pine;
+  }
+  .portal-stat > p {
+    @apply mt-5 text-[10px] font-semibold uppercase tracking-[.14em] text-slate-400;
+  }
+  .portal-stat > strong {
+    @apply mt-1 block text-3xl font-semibold text-ink;
+  }
+  .portal-stat > small {
+    @apply mt-2 block text-xs font-medium text-slate-500;
+  }
+  .portal-stat > a {
+    @apply mt-2 inline-block text-xs font-semibold text-pine;
+  }
+  .app-card { @apply rounded-3xl border border-slate-200 bg-white shadow-soft; }
+  .portal-shell .font-extrabold { @apply font-semibold; }
+  .portal-shell [class*="rounded-[2rem]"] { border-radius: 1rem; }
+  .portal-shell [class*="rounded-[1.55rem]"] { border-radius: .875rem; }
+  .portal-shell .text-5xl { font-size: 1.75rem !important; line-height: 2.1rem !important; }
+  .portal-shell .text-4xl { font-size: 1.55rem !important; line-height: 1.95rem !important; }
+  .portal-shell .text-3xl { font-size: 1.3rem !important; line-height: 1.7rem !important; }
+  .portal-shell .text-2xl { font-size: 1.1rem !important; line-height: 1.5rem !important; }
+  .portal-shell .text-xl { font-size: 1rem !important; line-height: 1.4rem !important; }
+  .portal-shell .text-lg { font-size: .9rem !important; line-height: 1.25rem !important; }
+  .portal-shell .text-base { font-size: .8rem !important; line-height: 1.15rem !important; }
+  .portal-shell .text-sm { font-size: .7rem !important; line-height: 1.1rem !important; }
+  .portal-shell .text-xs { font-size: .62rem !important; line-height: .95rem !important; }
+  .portal-shell { font-size: .82rem; }
+  .portal-shell header h1 { font-size: 1.25rem !important; line-height: 1.55rem !important; }
+  .portal-shell .portal-nav { font-size: .75rem; line-height: 1rem; }
+  .portal-shell .portal-heading { font-size: .95rem; line-height: 1.3rem; }
+  .portal-shell .app-label, .portal-shell .portal-kicker { font-size: .58rem; }
+  .portal-shell .app-input, .portal-shell .portal-input { font-size: .75rem; }
+  .portal-shell table { font-size: .72rem; }
+  .portal-shell .portal-stat > strong { font-size: 1.3rem; line-height: 1.65rem; }
+  .chart { @apply flex h-36 items-end gap-2 border-b border-slate-200 pt-5; }
+  .chart-column { @apply flex h-full min-w-0 flex-1 flex-col justify-end text-center; }
+  .chart-bar { @apply mx-auto w-full max-w-10 rounded-t-md bg-zinc-800 transition hover:bg-black; min-height: 3px; }
+  .chart-level-0 { height: 3px; } .chart-level-1 { height: 10%; } .chart-level-2 { height: 20%; }
+  .chart-level-3 { height: 30%; } .chart-level-4 { height: 40%; } .chart-level-5 { height: 50%; }
+  .chart-level-6 { height: 60%; } .chart-level-7 { height: 70%; } .chart-level-8 { height: 80%; }
+  .chart-level-9 { height: 90%; } .chart-level-10 { height: 100%; }
+  .app-pagination { @apply mt-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between; }
+  .app-pagination > div { @apply flex gap-2; }
+  .app-pagination a, .app-pagination span { @apply inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 font-semibold; }
+  .app-pagination a { @apply text-ink transition hover:border-black hover:text-black; }
+  .app-pagination span { @apply cursor-not-allowed text-slate-300; }
+  .money-input { @apply flex min-h-12 items-center overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm transition focus-within:border-emerald-600 focus-within:ring-4 focus-within:ring-emerald-100; }
+  .money-input > span { @apply grid min-h-12 place-items-center self-stretch border-r border-emerald-100 bg-lime-100 px-4 text-sm font-semibold text-emerald-900; }
+  .money-input > input { @apply min-w-0 flex-1 px-4 py-3 text-sm font-semibold text-ink outline-none; border:0 !important; background:transparent !important; box-shadow:none !important; }
+  .money-input > input:focus, .money-input > input:hover { border:0 !important; box-shadow:none !important; }
+  .portal-shell button:disabled { cursor:not-allowed !important; background:#cbd5b1 !important; color:#64705c !important; opacity:.8; }
+  .chart-grid { @apply grid h-40 grid-cols-7 gap-2; }
+  .chart-track { @apply flex h-28 items-end rounded-md bg-slate-100; }
+  .chart-value { @apply mb-1 block text-[10px] font-semibold text-slate-500; }
+  .chart-label { @apply mt-2 block text-[9px] font-medium text-slate-400; }
+  .chart-track .chart-bar { @apply block; }
+  .pagination-bar { @apply flex items-center justify-between border-t border-slate-100 px-6 py-4 text-xs; }
+  .pagination-bar a { @apply rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:border-black hover:text-black; }
+  .pagination-bar small { @apply text-[10px] font-semibold text-slate-400; }
+  .app-label { @apply text-xs font-semibold uppercase tracking-[0.15em] text-pine; }
+  .app-input { @apply mt-2 block min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-ink shadow-sm placeholder:text-slate-400 focus:border-black focus:ring-4 focus:ring-black/10; }
+  .app-button { @apply inline-flex items-center justify-center gap-2 rounded-full bg-pine px-5 py-3 text-sm font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-ink hover:shadow-lg active:translate-y-0 active:scale-[.98] focus:outline-none focus:ring-4 focus:ring-mint; }
+  .app-button-light { @apply inline-flex items-center justify-center gap-2 rounded-full bg-mint px-5 py-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:bg-white hover:shadow-lg active:translate-y-0 active:scale-[.98] focus:outline-none focus:ring-4 focus:ring-mint; }
+  .app-button-outline { @apply inline-flex items-center justify-center gap-2 rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-extrabold text-ink transition hover:-translate-y-0.5 hover:border-pine hover:text-pine active:translate-y-0 active:scale-[.98] focus:outline-none focus:ring-4 focus:ring-mint; }
+  button[type="submit"] { @apply transition active:scale-[.98] active:shadow-none; }
+  .metric-card { @apply rounded-3xl border border-white/70 bg-white/90 p-5 shadow-soft; }
+}
