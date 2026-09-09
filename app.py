@@ -23,6 +23,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from locatediscount.billing import redeem_code
+from locatediscount.database import (
+    DATABASE_ERRORS,
+    INTEGRITY_ERRORS,
+    POSTGRES_SCHEMA,
+    PostgresDatabase,
+)
 from locatediscount.media import MediaStorageError, destroy_product_image, upload_product_image
 from locatediscount.paystack import PaystackError, initialize_transaction, verify_transaction
 from locatediscount.validators import CODE_RE, EMAIL_RE, PHONE_RE, REFERENCE_RE, valid_password
@@ -30,8 +36,8 @@ from locatediscount.validators import CODE_RE, EMAIL_RE, PHONE_RE, REFERENCE_RE,
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
-# Render's normal filesystem is ephemeral.  In production, set DATABASE_PATH
-# to a location on an attached persistent disk (for example, /var/data/...).
+# DATABASE_URL selects Neon/Postgres. DATABASE_PATH remains a convenient
+# SQLite fallback for local development and the isolated test suite.
 DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "instance" / "locatediscount.sqlite3"))
 CATEGORIES = ("Food & Drink", "Beauty", "Auto", "Home Services", "Shopping", "Health")
 DEFAULT_REDEMPTION_FEE = 150
@@ -69,6 +75,7 @@ def create_app(test_config=None):
     ])
     app.config.from_mapping(
         SECRET_KEY=os.environ.get("SECRET_KEY", "development-only-change-me"),
+        DATABASE_URL=os.environ.get("DATABASE_URL", "").strip(),
         DATABASE=str(DATABASE_PATH),
         UPLOAD_FOLDER=str(BASE_DIR / "Located Folder" / "assets" / "uploads" / "products"),
         MAX_CONTENT_LENGTH=MAX_PRODUCT_IMAGES * MAX_PRODUCT_IMAGE_BYTES + 1024 * 1024,
@@ -96,14 +103,20 @@ def create_app(test_config=None):
         app.config["MEDIA_STORAGE"] = "local"
     if os.environ.get("FLASK_ENV") == "production" and app.config["SECRET_KEY"] == "development-only-change-me":
         raise RuntimeError("Set a strong SECRET_KEY before running in production.")
-    Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
+    # if os.environ.get("FLASK_ENV") == "production" and not app.config["DATABASE_URL"]:
+    #     raise RuntimeError("Set DATABASE_URL to the Neon Postgres connection string before running in production.")
+    if not app.config["DATABASE_URL"]:
+        Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
 
     def get_db():
         if "db" not in g:
-            g.db = sqlite3.connect(app.config["DATABASE"], isolation_level=None)
-            g.db.row_factory = sqlite3.Row
-            g.db.execute("PRAGMA foreign_keys = ON")
-            g.db.execute("PRAGMA journal_mode = WAL")
+            if app.config["DATABASE_URL"]:
+                g.db = PostgresDatabase(app.config["DATABASE_URL"])
+            else:
+                g.db = sqlite3.connect(app.config["DATABASE"], isolation_level=None)
+                g.db.row_factory = sqlite3.Row
+                g.db.execute("PRAGMA foreign_keys = ON")
+                g.db.execute("PRAGMA journal_mode = WAL")
         return g.db
 
     @app.teardown_appcontext
@@ -114,6 +127,22 @@ def create_app(test_config=None):
 
     def init_db():
         db = get_db()
+        if app.config["DATABASE_URL"]:
+            for statement in POSTGRES_SCHEMA.split(";"):
+                if statement.strip():
+                    db.execute(statement)
+            db.execute(
+                """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
+                   VALUES (?, ?, ?) ON CONFLICT (setting_key) DO NOTHING""",
+                ("redemption_fee", DEFAULT_REDEMPTION_FEE, timestamp()),
+            )
+            for category_name in CATEGORIES:
+                db.execute(
+                    """INSERT INTO categories (name, created_at) VALUES (?, ?)
+                       ON CONFLICT DO NOTHING""",
+                    (category_name, timestamp()),
+                )
+            return
         db.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -333,7 +362,7 @@ def create_app(test_config=None):
                 "INSERT INTO users (email, phone, password_hash, role, name, created_at) VALUES (?, ?, ?, 'admin', ?, ?)",
                 (email.strip().lower(), phone.strip(), generate_password_hash(password), name.strip(), timestamp()),
             )
-        except sqlite3.IntegrityError as error:
+        except INTEGRITY_ERRORS as error:
             raise click.UsageError("That email or phone number is already registered.") from error
         click.echo("Admin account created.")
 
@@ -372,7 +401,7 @@ def create_app(test_config=None):
             business = db.execute("SELECT id FROM businesses WHERE owner_id = ?", (owner_id,)).fetchone()
             if business:
                 business_id = business["id"]
-                db.execute("UPDATE businesses SET is_approved = 1, is_blocked = 0, wallet_balance = MAX(wallet_balance, 25000) WHERE id = ?", (business_id,))
+                db.execute("UPDATE businesses SET is_approved = 1, is_blocked = 0, wallet_balance = CASE WHEN wallet_balance < 25000 THEN 25000 ELSE wallet_balance END WHERE id = ?", (business_id,))
             else:
                 cursor = db.execute(
                     """INSERT INTO businesses
@@ -706,7 +735,7 @@ def create_app(test_config=None):
             )
             db.commit()
             return True
-        except sqlite3.Error:
+        except DATABASE_ERRORS:
             db.rollback()
             raise
 
@@ -714,7 +743,7 @@ def create_app(test_config=None):
         sql = "SELECT name FROM categories"
         if not include_inactive:
             sql += " WHERE is_active = 1"
-        sql += " ORDER BY name COLLATE NOCASE"
+        sql += " ORDER BY LOWER(name)"
         return tuple(row["name"] for row in get_db().execute(sql).fetchall())
 
     def page_window(total, key="page", per_page=5):
@@ -904,7 +933,7 @@ def create_app(test_config=None):
                     cursor = db.execute("INSERT INTO users (email, phone, password_hash, role, name, created_at) VALUES (?, ?, ?, ?, ?, ?)", (email, phone, generate_password_hash(password), role, name, timestamp()))
                     db.execute("INSERT INTO businesses (owner_id, name, category, address, city, created_at) VALUES (?, ?, ?, ?, ?, ?)", (cursor.lastrowid, business_name, category, address, city, timestamp()))
                     db.commit()
-                except sqlite3.IntegrityError:
+                except INTEGRITY_ERRORS:
                     db.rollback(); flash("That email or phone number is already registered.", "danger")
                 else:
                     session.clear(); session["user_id"] = cursor.lastrowid; session["csrf_token"] = secrets.token_urlsafe(32)
@@ -1115,14 +1144,14 @@ def create_app(test_config=None):
                     session["consumer_id"] = consumer_id
                     flash("Your redemption code is ready. Show it to this business in-store.", "success")
                     return redirect(url_for("code_detail", code_id=cursor.lastrowid))
-                except sqlite3.IntegrityError:
+                except INTEGRITY_ERRORS:
                     continue
             raise ValueError("Could not generate a secure code. Please retry.")
         except ConsumerProfileConflict as error:
             db.rollback()
             flash(str(error), "danger")
             return render_template("claim_code.html", deal=deal, consumer=None), 409
-        except sqlite3.IntegrityError:
+        except INTEGRITY_ERRORS:
             db.rollback()
             app.logger.exception("Could not create the customer code profile because its details already exist")
             flash("That phone number is already in use. Use the customer's own phone number or reopen their original code browser.", "danger")
@@ -1191,7 +1220,7 @@ def create_app(test_config=None):
             db.execute("DELETE FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id))
             flash("Removed from your saved deals.", "info")
         else:
-            db.execute("INSERT OR IGNORE INTO favorites (user_id, deal_id, created_at) VALUES (?, ?, ?)", (consumer["id"], deal_id, timestamp()))
+            db.execute("INSERT INTO favorites (user_id, deal_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", (consumer["id"], deal_id, timestamp()))
             flash("Saved to your private deal list.", "success")
         return redirect(url_for("deal_detail", deal_id=deal_id))
 
@@ -1390,7 +1419,7 @@ def create_app(test_config=None):
                              image["storage_provider"], order, timestamp()),
                         )
                     db.commit()
-                except (OSError, ValueError, sqlite3.Error) as error:
+                except (OSError, ValueError) + DATABASE_ERRORS as error:
                     db.rollback()
                     cleanup_product_images(images)
                     flash(str(error) or "Could not save your product images.", "danger")
@@ -1448,7 +1477,7 @@ def create_app(test_config=None):
                 try:
                     get_db().execute("INSERT INTO wallet_transactions (business_id, amount, kind, status, reference, note, created_at) VALUES (?, ?, 'topup', 'pending', ?, ?, ?)", (business["id"], amount, reference, request.form.get("note", "").strip()[:250], timestamp()))
                     flash("Top-up request submitted. Your wallet will update after payment verification.", "success")
-                except sqlite3.IntegrityError: flash("That transfer reference has already been submitted.", "danger")
+                except INTEGRITY_ERRORS: flash("That transfer reference has already been submitted.", "danger")
                 return redirect(url_for("wallet"))
         db = get_db()
         total = db.execute("SELECT COUNT(*) total FROM wallet_transactions WHERE business_id = ?", (business["id"],)).fetchone()["total"]
@@ -1691,7 +1720,7 @@ def create_app(test_config=None):
                     record_admin_action("create_category", "category", cursor.lastrowid, name)
                     flash("Category created and available to businesses.", "success")
                     return redirect(url_for("admin_categories"))
-                except sqlite3.IntegrityError:
+                except INTEGRITY_ERRORS:
                     flash("That category already exists.", "danger")
         total = db.execute("SELECT COUNT(*) total FROM categories").fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
@@ -1700,7 +1729,7 @@ def create_app(test_config=None):
                       (SELECT COUNT(*) FROM businesses WHERE businesses.category = categories.name) business_count,
                       (SELECT COUNT(*) FROM deals WHERE deals.category = categories.name) deal_count
                FROM categories LEFT JOIN users ON users.id = categories.created_by
-               ORDER BY categories.is_active DESC, categories.name COLLATE NOCASE LIMIT ? OFFSET ?""",
+               ORDER BY categories.is_active DESC, LOWER(categories.name) LIMIT ? OFFSET ?""",
             (per_page, offset),
         ).fetchall()
         return render_template("admin_categories.html", categories=categories, page=page,
@@ -1745,7 +1774,7 @@ def create_app(test_config=None):
                     record_admin_action("create_sub_admin", "user", cursor.lastrowid, f"Created administrator {email}")
                     flash("Sub-admin account created.", "success")
                     return redirect(url_for("admin_team"))
-                except sqlite3.IntegrityError:
+                except INTEGRITY_ERRORS:
                     flash("That email or phone number is already registered.", "danger")
         total = db.execute("SELECT COUNT(*) total FROM users WHERE role = 'admin'").fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
