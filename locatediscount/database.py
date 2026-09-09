@@ -198,7 +198,10 @@ class PostgresDatabase:
         self._connection = psycopg.connect(database_url, autocommit=True, row_factory=dict_row)
 
     def execute(self, query, params=None):
-        query = query.replace("BEGIN IMMEDIATE", "BEGIN").replace("?", "%s")
+        # psycopg treats every percent sign in the SQL text as the start of a
+        # parameter placeholder. Escape literal percent signs first (such as
+        # ``LIKE 'PSTK-%'``), then translate the application's SQLite qmarks.
+        query = query.replace("BEGIN IMMEDIATE", "BEGIN").replace("%", "%%").replace("?", "%s")
         cursor = self._connection.execute(query, params)
         return PostgresCursor(cursor, self._connection)
 
