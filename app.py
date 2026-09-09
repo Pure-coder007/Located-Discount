@@ -103,8 +103,8 @@ def create_app(test_config=None):
         app.config["MEDIA_STORAGE"] = "local"
     if os.environ.get("FLASK_ENV") == "production" and app.config["SECRET_KEY"] == "development-only-change-me":
         raise RuntimeError("Set a strong SECRET_KEY before running in production.")
-    # if os.environ.get("FLASK_ENV") == "production" and not app.config["DATABASE_URL"]:
-    #     raise RuntimeError("Set DATABASE_URL to the Neon Postgres connection string before running in production.")
+    if os.environ.get("FLASK_ENV") == "production" and not app.config["DATABASE_URL"]:
+        raise RuntimeError("Set DATABASE_URL to the Neon Postgres connection string before running in production.")
     if not app.config["DATABASE_URL"]:
         Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
 
@@ -340,7 +340,7 @@ def create_app(test_config=None):
 
     @app.cli.command("init-db")
     def init_db_command():
-        """Create the SQLite database tables."""
+        """Create or update the configured database tables."""
         init_db()
         click.echo("Database initialized.")
 
