@@ -10,6 +10,7 @@
   <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet">
   <script src="{{ url_for('static', filename='js/password-visibility.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/image-preview.js') }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body class="public-body min-h-screen">
@@ -28,7 +29,7 @@
         <a class="{% if request.endpoint in ('home', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('home') }}"><i class="bi bi-compass"></i> Discover</a>
         <a class="{% if request.endpoint in ('products', 'product_detail') %}active{% endif %}" href="{{ url_for('products') }}"><i class="bi bi-bag"></i> Products</a>
         <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>
-        <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My codes</a>
+        <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>
       </nav>
       <div class="public-actions">
         {% if current_user %}
@@ -46,7 +47,7 @@
     {% block content %}{% endblock %}
   </main>
   {% block site_footer %}
-  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand"><span class="public-brand-mark">LD</span><span>Locatediscount<small>Local discovery made rewarding.</small></span></a><p>Find trusted local products, claim free offer codes, and redeem directly with businesses.</p></div><nav><a href="{{ url_for('products') }}">Products</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My codes</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
+  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand"><span class="public-brand-mark">LD</span><span>Locatediscount<small>Local discovery made rewarding.</small></span></a><p>Find trusted local products, claim free offer vouchers, and redeem directly with businesses.</p></div><nav><a href="{{ url_for('products') }}">Products</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a><a href="{{ url_for('policies') }}">Policies</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
   {% endblock %}
 </body>
 </html>

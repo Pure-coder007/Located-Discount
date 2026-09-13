@@ -1,0 +1,18 @@
+{% extends 'portal_base.html' %}
+{% block title %}Edit category | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Catalogue controls{% endblock %}{% block portal_title %}Edit category{% endblock %}
+{% block portal_subtitle %}Changes to a category name are applied to its connected businesses and deals.{% endblock %}
+{% block portal_content %}
+<div class="mx-auto max-w-2xl">
+  <a class="inline-flex items-center gap-2 text-sm font-extrabold text-pine hover:text-ink" href="{{ url_for('admin_categories') }}"><i class="bi bi-arrow-left"></i> Categories</a>
+  <section class="app-card mt-5 p-7 sm:p-9">
+    <form method="post" enctype="multipart/form-data" class="space-y-5">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div><label class="app-label" for="name">Category name</label><input class="app-input mt-1" id="name" name="name" value="{{ request.form.get('name', category.name) }}" minlength="2" maxlength="60" required></div>
+      <div><label class="app-label" for="category-thumbnail">Replace thumbnail <span class="font-normal text-slate-400">(optional)</span></label><input class="app-input mt-1" id="category-thumbnail" name="image" type="file" accept="image/jpeg,image/png,image/webp" data-image-preview="category-thumbnail-preview"><p class="mt-1 text-xs text-slate-500">JPEG, PNG, or WebP. Maximum 5 MB.</p></div>
+      <div id="category-thumbnail-preview" class="{% if not (category.image_file_name or category.image_secure_url) %}hidden {% endif %}overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-2" {% if not (category.image_file_name or category.image_secure_url) %}hidden{% endif %}><img class="h-40 w-full rounded-lg object-cover" src="{% if category.image_file_name or category.image_secure_url %}{{ category_image_url(category) }}{% endif %}" alt="Category thumbnail preview"></div>
+      <button class="app-button w-full" type="submit">Save category changes</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

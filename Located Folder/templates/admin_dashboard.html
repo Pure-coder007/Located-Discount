@@ -234,6 +234,7 @@ and keep every redemption accountable.{% endblock %} {% block portal_actions
     {% if ledger_pages > 1 %}<nav class="pagination-bar">{% if ledger_page > 1 %}<a href="{{ url_for('admin_dashboard', ledger_page=ledger_page-1, topup_page=topup_page, wallet_page=wallet_page) }}#ledger">Previous</a>{% else %}<span></span>{% endif %}<small>{{ ledger_page }} / {{ ledger_pages }}</small>{% if ledger_page < ledger_pages %}<a href="{{ url_for('admin_dashboard', ledger_page=ledger_page+1, topup_page=topup_page, wallet_page=wallet_page) }}#ledger">Next</a>{% endif %}</nav>{% endif %}
   </section>
 </section>
+<section class="portal-panel mt-5 overflow-hidden"><div class="portal-panel-header"><div><p class="portal-kicker">All wallet funding</p><h2 class="portal-heading">Verified Paystack and manual top-ups</h2></div></div><div class="divide-y divide-slate-100">{% for topup in recent_topups %}<article class="flex items-center justify-between gap-3 px-6 py-4"><div><p class="text-sm font-extrabold text-ink">{{ topup.business_name }}</p><p class="mt-1 font-mono text-[10px] text-slate-400">{{ topup.reference }} · {{ topup.created_at[:16].replace('T', ' ') }}</p></div><div class="text-right"><p class="font-mono text-xs font-extrabold text-emerald-700">₦{{ '{:,.0f}'.format(topup.amount) }}</p><span class="text-[10px] font-bold {% if topup.status == 'approved' %}text-emerald-600{% elif topup.status == 'pending' %}text-amber-600{% else %}text-slate-500{% endif %}">{{ topup.status|title }}</span></div></article>{% else %}<div class="px-6 py-10 text-center text-sm text-slate-500">No wallet funding has been recorded yet.</div>{% endfor %}</div></section>
 <section class="portal-panel mt-5 overflow-hidden">
   <div
     class="flex flex-col gap-3 border-b border-slate-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between"
@@ -251,7 +252,7 @@ and keep every redemption accountable.{% endblock %} {% block portal_actions
   <div class="divide-y divide-slate-100">
     {% for business in businesses %}
     <article
-      class="grid gap-4 px-6 py-5 xl:grid-cols-[minmax(12rem,1fr)_8rem_minmax(25rem,1.35fr)] xl:items-center"
+      class="grid gap-4 px-6 py-5 xl:grid-cols-[minmax(12rem,1fr)_8rem_minmax(25rem,1.35fr)] xl:items-center {% if business.needs_top_up %}low-wallet-alert{% endif %}"
     >
       <div class="flex items-center gap-3">
         <span
@@ -266,7 +267,7 @@ and keep every redemption accountable.{% endblock %} {% block portal_actions
           </p>
         </div>
       </div>
-      <p class="font-mono text-base font-extrabold text-ink">
+      <p class="font-mono text-base font-extrabold {% if business.needs_top_up %}text-red-700{% else %}text-emerald-700{% endif %}">
         ₦{{ '{:,.0f}'.format(business.wallet_balance) }}
       </p>
       <form

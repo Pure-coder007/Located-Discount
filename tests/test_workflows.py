@@ -93,30 +93,24 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.assertIn(b"Products matching", home_search.data)
         self.assertIn(b"Lunch bowl", home_search.data)
         self.assertIn(f'/products/{product_id}'.encode(), home_search.data)
+        suggestions = self.client.get("/search/suggestions?q=clothes").get_json()["suggestions"]
+        self.assertIn({"label": "Clothes & fashion", "kind": "category", "value": "Shopping", "detail": "Category"}, suggestions)
+        suggestions = self.client.get("/search/suggestions?q=Lunch").get_json()["suggestions"]
+        self.assertTrue(any(item["value"] == "Lunch bowl" for item in suggestions))
 
         response = self.post(
             "/business/deals/new",
             {
                 "title": "20% off lunch", "category": "Food & Drink", "expires_at": "2030-12-31T17:00",
                 "description": "Twenty percent off any weekday lunch order.", "redemption_limit": "10",
-                "terms": "Valid Monday to Friday only.",
+                "terms": "Valid Monday to Friday only.", "regular_price": "2500", "discount_price": "2000",
             },
             follow_redirects=True,
         )
-        self.assertIn(b"Deal published", response.data)
+        self.assertIn(b"Deal submitted for admin approval", response.data)
         connection = sqlite3.connect(self.database)
         created_deal_id = connection.execute("SELECT id FROM deals WHERE title = '20% off lunch'").fetchone()[0]
         connection.close()
-        product_page = self.client.get(f"/products/{product_id}")
-        self.assertIn(b"Generate code", product_page.data)
-        self.assertIn(f'/deals/{created_deal_id}/claim'.encode(), product_page.data)
-        conflicting_phone = self.post(
-            f"/deals/{created_deal_id}/claim",
-            {"name": "Merchant Owner", "phone": "+2348012345678", "area": "Ikeja"},
-        )
-        self.assertEqual(conflicting_phone.status_code, 409)
-        self.assertIn(b"belongs to a business or administrator account", conflicting_phone.data)
-        self.assertIn(b'value="+2348012345678"', conflicting_phone.data)
         response = self.post("/business/wallet", {"amount": "5000", "reference": "BANK-TEST-001", "note": "Pilot funding"})
         self.assertEqual(response.status_code, 302)
         self.logout()
@@ -128,13 +122,26 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection.close()
         response = self.post(f"/admin/topups/{transaction_id}/approve", {}, follow_redirects=True)
         self.assertIn(b"Top-up approved", response.data)
+        response = self.post(f"/admin/deals/{created_deal_id}/approve", {}, follow_redirects=True)
+        self.assertIn(b"Deal approved and live", response.data)
         self.logout()
+
+        product_page = self.client.get(f"/products/{product_id}")
+        self.assertIn(b"Generate code", product_page.data)
+        self.assertIn(f'/deals/{created_deal_id}/claim'.encode(), product_page.data)
+        conflicting_phone = self.post(
+            f"/deals/{created_deal_id}/claim",
+            {"name": "Merchant Owner", "phone": "+2348012345678", "area": "Ikeja"},
+        )
+        self.assertEqual(conflicting_phone.status_code, 409)
+        self.assertIn(b"belongs to a business or administrator account", conflicting_phone.data)
+        self.assertIn(b'value="+2348012345678"', conflicting_phone.data)
 
         connection = sqlite3.connect(self.database)
         deal_id = connection.execute("SELECT id FROM deals").fetchone()[0]
         connection.close()
         response = self.client.get(f"/deals/{deal_id}")
-        self.assertIn(b"No account password or payment is needed.", response.data)
+        self.assertIn(b"Choose the quantity you want.", response.data)
         response = self.client.get(f"/deals/{deal_id}/claim")
         self.assertIn(b"A few details first", response.data)
         response = self.post(
@@ -142,7 +149,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
             {"name": "Test Customer", "phone": "+2348099999999", "area": "Ikeja"},
             follow_redirects=True,
         )
-        self.assertIn(b"Your one-time code", response.data)
+        self.assertIn(b"Your one-time voucher", response.data)
         self.assertIn(b"<svg", response.data)
 
         response = self.client.get("/my-codes")
@@ -161,7 +168,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         business_id = connection.execute("SELECT id FROM businesses WHERE name = 'Fresh Bowl'").fetchone()[0]
         cursor = connection.execute(
             """INSERT INTO deals (business_id, title, description, category, terms, expires_at,
-               redemption_limit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               redemption_limit, is_active, is_approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)""",
             (business_id, "Free drink with dinner", "A free drink with every dinner order this week.",
              "Food & Drink", "One drink per qualifying dinner order.", "2030-12-31T17:00:00+00:00", 10, timestamp()),
         )
@@ -193,7 +200,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.login("merchant@example.com", "MerchantPassword123")
         self.assertIn(b"Business analytics", self.client.get("/business/analytics").data)
         response = self.post("/business/redeem", {"code": code_value}, follow_redirects=True)
-        self.assertIn(b"Code validated", response.data)
+        self.assertIn(b"Voucher validated", response.data)
 
         connection = sqlite3.connect(self.database)
         code_status = connection.execute("SELECT status FROM codes").fetchone()[0]
@@ -203,13 +210,28 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         wallet_entry_count = connection.execute("SELECT COUNT(*) FROM wallet_transactions WHERE kind = 'redemption'").fetchone()[0]
         connection.close()
         self.assertEqual(code_status, "redeemed")
-        self.assertEqual(balance, 4850)
+        self.assertEqual(balance, 4500)
         self.assertEqual(ledger_count, 1)
-        self.assertEqual(platform_revenue, 150)
+        self.assertEqual(platform_revenue, 500)
         self.assertEqual(wallet_entry_count, 1)
 
         duplicate = self.post("/business/redeem", {"code": code_value}, follow_redirects=True)
         self.assertIn(b"expired or already redeemed", duplicate.data)
+        self.assertEqual(self.client.get(f"/business/deals/{created_deal_id}/edit").status_code, 200)
+        response = self.post(
+            f"/business/deals/{created_deal_id}/edit",
+            {
+                "title": "20% off lunch", "category": "Food & Drink", "expires_at": "2030-12-31T17:00",
+                "description": "An updated weekday lunch offer with rice, protein, and vegetables.",
+                "redemption_limit": "10", "daily_voucher_limit": "5", "max_vouchers_per_customer": "1",
+                "terms": "Valid Monday to Friday only.", "regular_price": "2500", "discount_price": "2000",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn(b"submitted for admin approval again", response.data)
+        connection = sqlite3.connect(self.database)
+        self.assertEqual(connection.execute("SELECT is_active, is_approved FROM deals WHERE id = ?", (created_deal_id,)).fetchone(), (0, 0))
+        connection.close()
 
     def test_post_without_csrf_is_rejected(self):
         response = self.client.post("/login", data={"email": "any@example.com", "password": "not-used"})
@@ -333,6 +355,34 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         response = self.post("/admin/categories", {"name": "Events & Experiences"}, follow_redirects=True)
         self.assertIn(b"Category created", response.data)
         self.assertIn(b"Events &amp; Experiences", response.data)
+        connection = sqlite3.connect(self.database)
+        event_category_id = connection.execute(
+            "SELECT id FROM categories WHERE name = 'Events & Experiences'"
+        ).fetchone()[0]
+        connection.close()
+        response = self.post(f"/admin/categories/{event_category_id}/edit", {"name": "Events"}, follow_redirects=True)
+        self.assertIn(b"Category updated", response.data)
+        self.assertIn(b"Events", response.data)
+        self.assertEqual(self.client.get("/policies/terms").status_code, 200)
+        pdf_response = self.client.get("/policies/privacy/document")
+        self.assertEqual(pdf_response.status_code, 200)
+        pdf_response.close()
+
+        response = self.post(
+            "/admin/categories",
+            {"name": "Dining", "image": (BytesIO(b"\x89PNG\r\n\x1a\nthumbnail"), "dining.png")},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Category created", response.data)
+        connection = sqlite3.connect(self.database)
+        category_id, image_name = connection.execute(
+            "SELECT id, image_file_name FROM categories WHERE name = 'Dining'"
+        ).fetchone()
+        connection.close()
+        self.assertTrue((Path(self.app.config["UPLOAD_FOLDER"]) / image_name).is_file())
+        response = self.post(f"/admin/categories/{category_id}/delete", {}, follow_redirects=True)
+        self.assertIn(b"Category deleted", response.data)
+        self.assertFalse((Path(self.app.config["UPLOAD_FOLDER"]) / image_name).exists())
 
         response = self.post(
             "/admin/team",

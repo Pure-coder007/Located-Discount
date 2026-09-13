@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} | Locatediscount{% endblock %}
+{% block content %}
+<section class="public-main"><a class="text-sm font-extrabold text-pine hover:text-ink" href="{{ url_for('policies') }}"><i class="bi bi-arrow-left"></i> All policies</a><div class="public-page-hero mt-5"><div><p class="app-label">Policy document</p><h1 class="mt-2 font-extrabold">{{ title }}</h1><p class="mt-2 text-sm text-slate-500">Read online or download a copy for your records.</p></div><a class="app-button" href="{{ url_for('policy_document', policy_key=policy_key) }}" target="_blank" rel="noopener">Open PDF <i class="bi bi-box-arrow-up-right"></i></a></div><div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white"><object class="h-[75vh] w-full" data="{{ url_for('policy_document', policy_key=policy_key) }}" type="application/pdf"><p class="p-6 text-sm text-slate-600">Your browser cannot display this PDF. <a class="font-bold text-pine" href="{{ url_for('policy_document', policy_key=policy_key) }}">Open the document</a>.</p></object></div></section>
+{% endblock %}

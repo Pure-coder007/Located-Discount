@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from email.message import EmailMessage
 
 import click
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from jinja2 import ChoiceLoader, FileSystemLoader
 from markupsafe import Markup
 import qrcode
@@ -26,6 +26,7 @@ from locatediscount.billing import redeem_code
 from locatediscount.database import (
     DATABASE_ERRORS,
     INTEGRITY_ERRORS,
+    POSTGRES_MIGRATIONS,
     POSTGRES_SCHEMA,
     PostgresDatabase,
 )
@@ -40,10 +41,15 @@ load_dotenv(BASE_DIR / ".env")
 # SQLite fallback for local development and the isolated test suite.
 DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "instance" / "locatediscount.sqlite3"))
 CATEGORIES = ("Food & Drink", "Beauty", "Auto", "Home Services", "Shopping", "Health")
-DEFAULT_REDEMPTION_FEE = 150
+DEFAULT_REDEMPTION_FEE = 500
 MAX_PRODUCT_IMAGES = 5
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
 PASSWORD_RESET_TTL = timedelta(minutes=30)
+POLICY_DOCUMENTS = {
+    "terms": ("Terms of Service", "LOCATEDISCOUNT TERMS OF SERVICE (1).pdf"),
+    "privacy": ("Privacy Policy", "Locatediscount Privacy Policy (1).pdf"),
+    "faq": ("Frequently Asked Questions", "Locatediscount FAQ (1).pdf"),
+}
 
 
 class ConsumerProfileConflict(ValueError):
@@ -131,16 +137,34 @@ def create_app(test_config=None):
             for statement in POSTGRES_SCHEMA.split(";"):
                 if statement.strip():
                     db.execute(statement)
+            for statement in POSTGRES_MIGRATIONS.split(";"):
+                if statement.strip():
+                    db.execute(statement)
+            db.execute(
+                "UPDATE platform_settings SET integer_value = ? WHERE setting_key = 'redemption_fee' AND integer_value = ?",
+                (DEFAULT_REDEMPTION_FEE, 150),
+            )
+            # Existing live deals remain live; every newly submitted deal is reviewed.
+            db.execute("UPDATE deals SET is_approved = 1 WHERE is_active = 1 AND is_approved = 0")
             db.execute(
                 """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
                    VALUES (?, ?, ?) ON CONFLICT (setting_key) DO NOTHING""",
                 ("redemption_fee", DEFAULT_REDEMPTION_FEE, timestamp()),
             )
-            for category_name in CATEGORIES:
+            if not db.execute("SELECT 1 FROM platform_settings WHERE setting_key = 'category_defaults_seeded'").fetchone():
+                has_categories = db.execute("SELECT 1 FROM categories LIMIT 1").fetchone()
+                was_deleted = db.execute("SELECT 1 FROM admin_audit_logs WHERE action = 'delete_category' LIMIT 1").fetchone()
+                if not has_categories and not was_deleted:
+                    for category_name in CATEGORIES:
+                        db.execute(
+                            """INSERT INTO categories (name, created_at) VALUES (?, ?)
+                               ON CONFLICT DO NOTHING""",
+                            (category_name, timestamp()),
+                        )
                 db.execute(
-                    """INSERT INTO categories (name, created_at) VALUES (?, ?)
-                       ON CONFLICT DO NOTHING""",
-                    (category_name, timestamp()),
+                    """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
+                       VALUES ('category_defaults_seeded', 1, ?) ON CONFLICT (setting_key) DO NOTHING""",
+                    (timestamp(),),
                 )
             return
         db.executescript(
@@ -167,7 +191,10 @@ def create_app(test_config=None):
               needs_top_up INTEGER NOT NULL DEFAULT 0,
               is_approved INTEGER NOT NULL DEFAULT 0,
               is_blocked INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL
+              created_at TEXT NOT NULL,
+              redemption_fee INTEGER,
+              opening_hours TEXT NOT NULL DEFAULT '',
+              low_balance_alerted_at TEXT
             );
             CREATE TABLE IF NOT EXISTS consumer_profiles (
               user_id INTEGER PRIMARY KEY REFERENCES users(id),
@@ -201,6 +228,13 @@ def create_app(test_config=None):
               redemption_limit INTEGER NOT NULL CHECK(redemption_limit > 0),
               redemption_count INTEGER NOT NULL DEFAULT 0,
               is_active INTEGER NOT NULL DEFAULT 1,
+              regular_price_kobo INTEGER NOT NULL DEFAULT 0,
+              discount_price_kobo INTEGER NOT NULL DEFAULT 0,
+              daily_voucher_limit INTEGER NOT NULL DEFAULT 5,
+              max_vouchers_per_customer INTEGER NOT NULL DEFAULT 1,
+              is_approved INTEGER NOT NULL DEFAULT 0,
+              approved_at TEXT,
+              approved_by INTEGER REFERENCES users(id),
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS codes (
@@ -212,7 +246,20 @@ def create_app(test_config=None):
               expires_at TEXT NOT NULL,
               created_at TEXT NOT NULL,
               redeemed_at TEXT,
-              redeemed_by INTEGER REFERENCES users(id)
+              redeemed_by INTEGER REFERENCES users(id),
+              quantity INTEGER NOT NULL DEFAULT 1,
+              unit_price_kobo INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS deal_images (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+              file_name TEXT NOT NULL,
+              secure_url TEXT,
+              public_id TEXT,
+              storage_provider TEXT NOT NULL DEFAULT 'local',
+              sort_order INTEGER NOT NULL CHECK(sort_order BETWEEN 1 AND 5),
+              created_at TEXT NOT NULL,
+              UNIQUE(deal_id, sort_order)
             );
             CREATE TABLE IF NOT EXISTS products (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -276,6 +323,10 @@ def create_app(test_config=None):
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               name TEXT NOT NULL UNIQUE COLLATE NOCASE,
               is_active INTEGER NOT NULL DEFAULT 1,
+              image_file_name TEXT,
+              image_secure_url TEXT,
+              image_public_id TEXT,
+              image_storage_provider TEXT,
               created_at TEXT NOT NULL,
               created_by INTEGER REFERENCES users(id)
             );
@@ -298,9 +349,10 @@ def create_app(test_config=None):
             CREATE INDEX IF NOT EXISTS codes_user_status_idx ON codes(user_id, status, created_at);
             CREATE INDEX IF NOT EXISTS products_business_active_idx ON products(business_id, is_active);
             CREATE INDEX IF NOT EXISTS product_images_product_idx ON product_images(product_id, sort_order);
+            CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order);
             CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_tokens(user_id, expires_at);
             INSERT OR IGNORE INTO platform_settings (setting_key, integer_value, updated_at)
-              VALUES ('redemption_fee', 150, datetime('now'));
+              VALUES ('redemption_fee', 500, datetime('now'));
             """
         )
         # SQLite migrations for databases created before the current pilot schema.
@@ -311,12 +363,42 @@ def create_app(test_config=None):
             db.execute("ALTER TABLE businesses ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 0")
         if "is_blocked" not in columns:
             db.execute("ALTER TABLE businesses ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0")
+        if "opening_hours" not in columns:
+            db.execute("ALTER TABLE businesses ADD COLUMN opening_hours TEXT NOT NULL DEFAULT ''")
+        if "low_balance_alerted_at" not in columns:
+            db.execute("ALTER TABLE businesses ADD COLUMN low_balance_alerted_at TEXT")
+        deal_columns = {row["name"] for row in db.execute("PRAGMA table_info(deals)").fetchall()}
+        for name, definition in (
+            ("regular_price_kobo", "INTEGER NOT NULL DEFAULT 0"),
+            ("discount_price_kobo", "INTEGER NOT NULL DEFAULT 0"),
+            ("daily_voucher_limit", "INTEGER NOT NULL DEFAULT 5"),
+            ("max_vouchers_per_customer", "INTEGER NOT NULL DEFAULT 1"),
+            ("is_approved", "INTEGER NOT NULL DEFAULT 0"),
+            ("approved_at", "TEXT"),
+            ("approved_by", "INTEGER REFERENCES users(id)"),
+        ):
+            if name not in deal_columns:
+                db.execute(f"ALTER TABLE deals ADD COLUMN {name} {definition}")
+        db.execute("UPDATE deals SET is_approved = 1 WHERE is_active = 1 AND is_approved = 0")
         user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
         if "created_by_admin" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN created_by_admin INTEGER REFERENCES users(id)")
         code_columns = {row["name"] for row in db.execute("PRAGMA table_info(codes)").fetchall()}
         if "device_id" not in code_columns:
             db.execute("ALTER TABLE codes ADD COLUMN device_id INTEGER REFERENCES consumer_devices(id)")
+        if "quantity" not in code_columns:
+            db.execute("ALTER TABLE codes ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1")
+        if "unit_price_kobo" not in code_columns:
+            db.execute("ALTER TABLE codes ADD COLUMN unit_price_kobo INTEGER NOT NULL DEFAULT 0")
+        category_columns = {row["name"] for row in db.execute("PRAGMA table_info(categories)").fetchall()}
+        for name, definition in (
+            ("image_file_name", "TEXT"),
+            ("image_secure_url", "TEXT"),
+            ("image_public_id", "TEXT"),
+            ("image_storage_provider", "TEXT"),
+        ):
+            if name not in category_columns:
+                db.execute(f"ALTER TABLE categories ADD COLUMN {name} {definition}")
         image_columns = {row["name"] for row in db.execute("PRAGMA table_info(product_images)").fetchall()}
         if "secure_url" not in image_columns:
             db.execute("ALTER TABLE product_images ADD COLUMN secure_url TEXT")
@@ -325,10 +407,20 @@ def create_app(test_config=None):
         if "storage_provider" not in image_columns:
             db.execute("ALTER TABLE product_images ADD COLUMN storage_provider TEXT NOT NULL DEFAULT 'local'")
         db.execute("CREATE INDEX IF NOT EXISTS codes_device_status_idx ON codes(device_id, status, created_at)")
-        for category_name in CATEGORIES:
+        db.execute("CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order)")
+        db.execute("UPDATE platform_settings SET integer_value = ? WHERE setting_key = 'redemption_fee' AND integer_value = ?", (DEFAULT_REDEMPTION_FEE, 150))
+        if not db.execute("SELECT 1 FROM platform_settings WHERE setting_key = 'category_defaults_seeded'").fetchone():
+            has_categories = db.execute("SELECT 1 FROM categories LIMIT 1").fetchone()
+            was_deleted = db.execute("SELECT 1 FROM admin_audit_logs WHERE action = 'delete_category' LIMIT 1").fetchone()
+            if not has_categories and not was_deleted:
+                for category_name in CATEGORIES:
+                    db.execute(
+                        "INSERT OR IGNORE INTO categories (name, created_at) VALUES (?, ?)",
+                        (category_name, timestamp()),
+                    )
             db.execute(
-                "INSERT OR IGNORE INTO categories (name, created_at) VALUES (?, ?)",
-                (category_name, timestamp()),
+                "INSERT OR IGNORE INTO platform_settings (setting_key, integer_value, updated_at) VALUES ('category_defaults_seeded', 1, ?)",
+                (timestamp(),),
             )
 
     def expire_codes():
@@ -454,11 +546,17 @@ def create_app(test_config=None):
             secure_url = image["secure_url"] if "secure_url" in image.keys() else None
             return secure_url or url_for("static", filename="uploads/products/" + image["file_name"])
 
+        def category_image_url(category):
+            secure_url = category["image_secure_url"] if "image_secure_url" in category.keys() else None
+            file_name = category["image_file_name"] if "image_file_name" in category.keys() else None
+            return secure_url or (url_for("static", filename="uploads/products/" + file_name) if file_name else "")
+
         return {
             "current_user": current_user(),
             "csrf_token": session.get("csrf_token"),
             "pagination_url": pagination_url,
             "product_image_url": product_image_url,
+            "category_image_url": category_image_url,
         }
 
     @app.template_filter("qr_svg")
@@ -488,7 +586,7 @@ def create_app(test_config=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self)"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self' https://nominatim.openstreetmap.org; img-src 'self' data: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         if request.path.startswith(("/consumer", "/business", "/admin", "/login", "/register", "/my-codes", "/codes/")) or request.path.endswith("/claim"):
@@ -608,6 +706,38 @@ def create_app(test_config=None):
         parsed = urlparse(value)
         return parsed.scheme == "https" and bool(parsed.netloc) and len(value) <= 500
 
+    def naira_to_kobo(value):
+        try:
+            amount = Decimal(value.strip())
+        except (AttributeError, InvalidOperation):
+            return None
+        if amount < 0 or amount.as_tuple().exponent < -2:
+            return None
+        return int(amount * 100)
+
+    def daily_voucher_capacity(deal, day=None):
+        """Return a deterministic, changing daily allocation for an offer."""
+        day = day or utcnow().date()
+        base = max(1, deal["daily_voucher_limit"])
+        variation = ((deal["id"] * 37 + day.toordinal()) % 3) - 1
+        return max(1, base + variation)
+
+    def daily_voucher_remaining(db, deal):
+        start = timestamp(datetime.combine(utcnow().date(), datetime.min.time(), tzinfo=timezone.utc))
+        claims = db.execute(
+            "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND created_at >= ?",
+            (deal["id"], start),
+        ).fetchone()["total"]
+        return max(0, daily_voucher_capacity(deal) - claims)
+
+    def opening_hours_by_day(value):
+        result = {day: "" for day in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
+        for line in (value or "").splitlines():
+            day, separator, hours = line.partition(":")
+            if separator and day in result:
+                result[day] = hours.strip()
+        return result
+
     def product_image_extension(upload):
         """Accept only common raster image signatures, never client-supplied extensions."""
         header = upload.stream.read(16)
@@ -626,7 +756,7 @@ def create_app(test_config=None):
         upload.stream.seek(0)
         return size
 
-    def save_product_images(uploads, business_id):
+    def save_images(uploads, business_id, kind):
         uploads = [upload for upload in uploads if upload and upload.filename]
         if len(uploads) > MAX_PRODUCT_IMAGES:
             raise ValueError(f"Upload no more than {MAX_PRODUCT_IMAGES} product images.")
@@ -649,7 +779,7 @@ def create_app(test_config=None):
                     raise ValueError("Each product image must be 5 MB or smaller.")
                 token = secrets.token_hex(16)
                 if app.config["MEDIA_STORAGE"] == "cloudinary":
-                    public_id = f"locatediscount/products/{business_id}/{token}"
+                    public_id = f"locatediscount/{kind}/{business_id}/{token}"
                     result = upload_product_image(upload.stream, public_id=public_id, **cloudinary_options)
                     saved.append({
                         "file_name": result["public_id"],
@@ -671,6 +801,15 @@ def create_app(test_config=None):
             cleanup_product_images(saved)
             raise
         return saved
+
+    def save_product_images(uploads, business_id):
+        return save_images(uploads, business_id, "products")
+
+    def save_deal_images(uploads, business_id):
+        return save_images(uploads, business_id, "deals")
+
+    def save_category_image(upload):
+        return save_images([upload] if upload and upload.filename else [], "categories", "categories")
 
     def cleanup_product_images(images):
         cloudinary_options = {
@@ -725,7 +864,8 @@ def create_app(test_config=None):
             db.execute(
                 """UPDATE businesses
                    SET wallet_balance = wallet_balance + ?,
-                       needs_top_up = CASE WHEN wallet_balance + ? < low_balance_threshold THEN 1 ELSE 0 END
+                       needs_top_up = CASE WHEN wallet_balance + ? < low_balance_threshold THEN 1 ELSE 0 END,
+                       low_balance_alerted_at = NULL
                    WHERE id = ?""",
                 (transaction["amount"], transaction["amount"], transaction["business_id"]),
             )
@@ -745,6 +885,19 @@ def create_app(test_config=None):
             sql += " WHERE is_active = 1"
         sql += " ORDER BY LOWER(name)"
         return tuple(row["name"] for row in get_db().execute(sql).fetchall())
+
+    def matching_category_for_query(query, categories):
+        """Turn common category search words into a useful marketplace filter."""
+        normalized = " ".join(query.lower().split())
+        if not normalized:
+            return ""
+        exact_categories = {name.lower(): name for name in categories}
+        if normalized in exact_categories:
+            return exact_categories[normalized]
+        clothing_words = {"clothes", "clothing", "fashion", "outfit", "outfits", "dress", "dresses", "shoe", "shoes"}
+        if clothing_words.intersection(normalized.replace("-", " ").split()):
+            return exact_categories.get("shopping", "")
+        return ""
 
     def page_window(total, key="page", per_page=5):
         total_pages = max(1, math.ceil(total / per_page))
@@ -801,6 +954,36 @@ def create_app(test_config=None):
             smtp.send_message(message)
         return True
 
+    def send_low_wallet_alert(business_id, balance):
+        """Send one alert per low-balance period without blocking redemption."""
+        db = get_db()
+        business = db.execute(
+            """SELECT businesses.*, users.name AS owner_name, users.email AS owner_email
+               FROM businesses JOIN users ON users.id = businesses.owner_id WHERE businesses.id = ?""",
+            (business_id,),
+        ).fetchone()
+        if not business or balance >= business["low_balance_threshold"] or business["low_balance_alerted_at"]:
+            return
+        if app.config["SMTP_HOST"]:
+            try:
+                message = EmailMessage()
+                message["Subject"] = "Locatediscount wallet needs funding"
+                message["From"] = app.config["MAIL_FROM"]
+                message["To"] = business["owner_email"]
+                message.set_content(f"Hello {business['owner_name']},\n\nYour {business['name']} wallet is ₦{balance:,}, below your alert level of ₦{business['low_balance_threshold']:,}. Fund it to keep redeeming vouchers.")
+                with smtplib.SMTP(app.config["SMTP_HOST"], app.config["SMTP_PORT"], timeout=10) as smtp:
+                    if app.config["SMTP_USE_TLS"]:
+                        smtp.starttls()
+                    if app.config["SMTP_USERNAME"]:
+                        smtp.login(app.config["SMTP_USERNAME"], app.config["SMTP_PASSWORD"])
+                    smtp.send_message(message)
+            except Exception:
+                app.logger.exception("Could not send low-wallet alert for business %s", business_id)
+                return
+        else:
+            app.logger.warning("Wallet for business %s is low; SMTP is not configured.", business_id)
+        db.execute("UPDATE businesses SET low_balance_alerted_at = ? WHERE id = ?", (timestamp(), business_id))
+
     def login_attempt_key(email):
         # Do not retain raw login identifiers in the rate-limit table.
         value = f"{request.remote_addr or ''}:{email}".encode()
@@ -830,18 +1013,40 @@ def create_app(test_config=None):
     def clear_login_attempts(key):
         get_db().execute("DELETE FROM login_attempts WHERE attempt_key = ?", (key,))
 
+    @app.get("/policies")
+    def policies():
+        return render_template("policies.html", policies=POLICY_DOCUMENTS)
+
+    @app.get("/policies/<policy_key>")
+    def policy_page(policy_key):
+        policy = POLICY_DOCUMENTS.get(policy_key)
+        if not policy:
+            abort(404)
+        return render_template("policy.html", policy_key=policy_key, title=policy[0])
+
+    @app.get("/policies/<policy_key>/document")
+    def policy_document(policy_key):
+        policy = POLICY_DOCUMENTS.get(policy_key)
+        if not policy:
+            abort(404)
+        return send_from_directory(BASE_DIR / "Located Folder/templates/policies", policy[1], mimetype="application/pdf")
+
     @app.route("/")
     def home():
         category = request.args.get("category", "")
         query = request.args.get("q", "").strip()
         area = request.args.get("area", "").strip()
         sort = request.args.get("sort", "newest")
+        categories = category_names()
+        if not category:
+            category = matching_category_for_query(query, categories)
+            if category:
+                query = ""
         sql = """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address
                  FROM deals JOIN businesses ON businesses.id = deals.business_id
-                 WHERE deals.is_active = 1 AND deals.expires_at > ?
+                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                    AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
-        categories = category_names()
         if category in categories:
             sql += " AND deals.category = ?"
             params.append(category)
@@ -891,16 +1096,85 @@ def create_app(test_config=None):
         homepage_products = db.execute(
             product_sql + " ORDER BY products.created_at DESC LIMIT 5", product_params
         ).fetchall()
+        category_sql = """SELECT categories.*, COUNT(businesses.id) AS deal_count"""
+        category_params = []
+        if area:
+            category_sql += ", SUM(CASE WHEN businesses.city LIKE ? OR businesses.address LIKE ? THEN 1 ELSE 0 END) AS nearby_deal_count"
+            category_params.extend([f"%{area}%", f"%{area}%"])
+        else:
+            category_sql += ", 0 AS nearby_deal_count"
+        category_sql += """
+            FROM categories
+            LEFT JOIN deals ON deals.category = categories.name
+                AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+            LEFT JOIN businesses ON businesses.id = deals.business_id
+                AND businesses.is_approved = 1 AND businesses.is_blocked = 0
+            WHERE categories.is_active = 1
+            GROUP BY categories.id
+            ORDER BY nearby_deal_count DESC, deal_count DESC, LOWER(categories.name)"""
+        category_params.append(timestamp())
+        category_total = db.execute(
+            f"SELECT COUNT(*) total FROM ({category_sql}) nearby_categories", category_params
+        ).fetchone()["total"]
+        category_page, category_pages, category_limit, category_offset = page_window(
+            category_total, "category_page", per_page=6
+        )
+        category_tiles = db.execute(
+            category_sql + " LIMIT ? OFFSET ?", [*category_params, category_limit, category_offset]
+        ).fetchall()
         return render_template(
             "index.html", deals=deals, categories=categories, query=query, area=area,
             selected_category=category, selected_sort=sort, consumer=current_consumer_profile(),
             page=page, total_pages=total_pages, total=total,
             homepage_products=homepage_products, product_total=product_total,
+            category_tiles=category_tiles, category_page=category_page, category_pages=category_pages,
+            category_total=category_total,
             deal_images=(
                 "deals/local-meal.jpg", "deals/fried-chicken.jpg", "deals/market-offer.jpg",
                 "deals/clothing-sale.jpg", "deals/sneaker-deal.jpg", "deals/boutique-style.png",
             ),
         )
+
+    @app.get("/search/suggestions")
+    def search_suggestions():
+        query = " ".join(request.args.get("q", "").strip().split())
+        if not query:
+            return jsonify({"suggestions": []})
+        like_query = f"%{query}%"
+        db = get_db()
+        suggestions = []
+        seen = set()
+
+        def add_suggestion(label, kind, value, detail):
+            key = (kind, value.lower())
+            if key not in seen and len(suggestions) < 8:
+                seen.add(key)
+                suggestions.append({"label": label, "kind": kind, "value": value, "detail": detail})
+
+        categories = db.execute(
+            "SELECT name FROM categories WHERE is_active = 1 AND name LIKE ? ORDER BY LOWER(name) LIMIT 4",
+            (like_query,),
+        ).fetchall()
+        for row in categories:
+            add_suggestion(row["name"], "category", row["name"], "Category")
+        if matching_category_for_query(query, category_names()) == "Shopping":
+            add_suggestion("Clothes & fashion", "category", "Shopping", "Category")
+        cities = db.execute(
+            """SELECT DISTINCT city FROM businesses WHERE is_approved = 1 AND is_blocked = 0
+               AND city LIKE ? ORDER BY LOWER(city) LIMIT 3""",
+            (like_query,),
+        ).fetchall()
+        for row in cities:
+            add_suggestion(row["city"], "area", row["city"], "City / area")
+        products = db.execute(
+            """SELECT DISTINCT products.name FROM products JOIN businesses ON businesses.id = products.business_id
+               WHERE products.is_active = 1 AND businesses.is_approved = 1 AND businesses.is_blocked = 0
+                 AND products.name LIKE ? ORDER BY LOWER(products.name) LIMIT 4""",
+            (like_query,),
+        ).fetchall()
+        for row in products:
+            add_suggestion(row["name"], "search", row["name"], "Product")
+        return jsonify({"suggestions": suggestions})
 
     @app.route("/register", methods=("GET", "POST"))
     def register():
@@ -1056,13 +1330,15 @@ def create_app(test_config=None):
 
     @app.route("/deals/<int:deal_id>")
     def deal_detail(deal_id):
-        deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
+        deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
         if not deal: abort(404)
         consumer = current_consumer_profile()
         is_favorite = bool(consumer and get_db().execute(
             "SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)
         ).fetchone())
-        return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite)
+        images = get_db().execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
+        return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite,
+                               images=images, daily_remaining=daily_voucher_remaining(get_db(), deal))
 
     @app.route("/consumer")
     @roles_required("consumer")
@@ -1095,7 +1371,7 @@ def create_app(test_config=None):
         deal = db.execute(
             """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address
                FROM deals JOIN businesses ON businesses.id = deals.business_id
-               WHERE deals.id = ? AND deals.is_active = 1 AND deals.expires_at > ?
+               WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
             (deal_id, timestamp()),
         ).fetchone()
@@ -1109,6 +1385,13 @@ def create_app(test_config=None):
         name = request.form.get("name", "").strip()
         phone = request.form.get("phone", "").strip()
         area = request.form.get("area", "").strip()
+        try:
+            quantity = int(request.form.get("quantity", "1"))
+        except ValueError:
+            quantity = 0
+        if not 1 <= quantity <= 10:
+            flash("Choose between 1 and 10 items for this voucher.", "danger")
+            return render_template("claim_code.html", deal=deal, consumer=consumer), 400
         if not consumer:
             if not 2 <= len(name) <= 80 or not PHONE_RE.match(phone) or len(area) > 80:
                 flash("Enter your name, a valid phone number, and an optional area up to 80 characters.", "danger")
@@ -1117,14 +1400,23 @@ def create_app(test_config=None):
             db.execute("BEGIN IMMEDIATE")
             deal = db.execute(
                 """SELECT deals.* FROM deals JOIN businesses ON businesses.id = deals.business_id
-                   WHERE deals.id = ? AND deals.is_active = 1 AND deals.expires_at > ?
+                 WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                      AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
                 (deal_id, timestamp()),
             ).fetchone()
             if not deal or deal["redemption_count"] >= deal["redemption_limit"]:
                 raise ValueError("This deal is no longer available.")
+            if daily_voucher_remaining(db, deal) < 1:
+                raise ValueError("All of today's vouchers have been claimed. Please try again tomorrow.")
             consumer_id = consumer["id"] if consumer else create_consumer_profile(db, name, phone, area)
             device_id = ensure_consumer_device(db, consumer_id)
+            if deal["max_vouchers_per_customer"]:
+                claimed = db.execute(
+                    "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND user_id = ?",
+                    (deal_id, consumer_id),
+                ).fetchone()["total"]
+                if claimed >= deal["max_vouchers_per_customer"]:
+                    raise ValueError("You have reached this deal's voucher limit per customer.")
             existing = db.execute(
                 """SELECT codes.id FROM codes JOIN deals ON deals.id = codes.deal_id
                    WHERE codes.device_id = ? AND deals.business_id = ? AND codes.status = 'active'""",
@@ -1139,10 +1431,13 @@ def create_app(test_config=None):
             for _ in range(5):
                 value = code_value()
                 try:
-                    cursor = db.execute("INSERT INTO codes (deal_id, user_id, device_id, value, status, expires_at, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)", (deal_id, consumer_id, device_id, value, timestamp(expires), timestamp()))
+                    cursor = db.execute(
+                        "INSERT INTO codes (deal_id, user_id, device_id, value, status, expires_at, created_at, quantity, unit_price_kobo) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+                        (deal_id, consumer_id, device_id, value, timestamp(expires), timestamp(), quantity, deal["discount_price_kobo"]),
+                    )
                     db.commit()
                     session["consumer_id"] = consumer_id
-                    flash("Your redemption code is ready. Show it to this business in-store.", "success")
+                    flash("Your voucher is ready. Show it to this business in-store.", "success")
                     return redirect(url_for("code_detail", code_id=cursor.lastrowid))
                 except INTEGRITY_ERRORS:
                     continue
@@ -1166,7 +1461,7 @@ def create_app(test_config=None):
         if not consumer:
             abort(404)
         code = get_db().execute(
-            """SELECT codes.*, deals.title, deals.terms, businesses.name business_name,
+            """SELECT codes.*, deals.title, deals.terms, deals.regular_price_kobo, deals.discount_price_kobo, businesses.name business_name,
                       businesses.address, businesses.city
                FROM codes
                JOIN deals ON deals.id = codes.deal_id
@@ -1194,7 +1489,7 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
         codes = db.execute(
-            """SELECT codes.*, deals.title, deals.description, businesses.name business_name, businesses.city
+            """SELECT codes.*, deals.title, deals.description, deals.discount_price_kobo, businesses.name business_name, businesses.city
                FROM codes JOIN deals ON deals.id = codes.deal_id
                JOIN businesses ON businesses.id = deals.business_id
                WHERE codes.user_id = ? AND codes.status = ? ORDER BY codes.created_at DESC
@@ -1334,11 +1629,29 @@ def create_app(test_config=None):
         ledger_total = db.execute("SELECT COUNT(*) total FROM ledger_entries WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         activity_page, activity_pages, limit, activity_offset = page_window(ledger_total, "activity_page")
         ledger = db.execute("SELECT ledger_entries.*, codes.value code, deals.title FROM ledger_entries JOIN codes ON codes.id = ledger_entries.code_id JOIN deals ON deals.id = ledger_entries.deal_id WHERE ledger_entries.business_id = ? ORDER BY ledger_entries.created_at DESC LIMIT ? OFFSET ?", (business["id"], limit, activity_offset)).fetchall()
-        active_deal_count = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND expires_at > ?", (business["id"], timestamp())).fetchone()["total"]
+        active_deal_count = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND expires_at > ?", (business["id"], timestamp())).fetchone()["total"]
         return render_template("business_dashboard.html", business=business, deals=deals, ledger=ledger,
                                fee=redemption_fee(db, business), active_deal_count=active_deal_count,
                                deal_page=deal_page, deal_pages=deal_pages, activity_page=activity_page,
-                               activity_pages=activity_pages, chart=daily_redemption_series(db, business["id"]))
+                               activity_pages=activity_pages, chart=daily_redemption_series(db, business["id"]),
+                               opening_hours=opening_hours_by_day(business["opening_hours"]))
+
+    @app.post("/business/opening-hours")
+    @approved_business_required
+    def update_opening_hours():
+        business = business_for_user(current_user()["id"])
+        days = (("Mon", "mon"), ("Tue", "tue"), ("Wed", "wed"), ("Thu", "thu"),
+                ("Fri", "fri"), ("Sat", "sat"), ("Sun", "sun"))
+        lines = []
+        for label, key in days:
+            hours = " ".join(request.form.get(f"hours_{key}", "").split())
+            if len(hours) > 80:
+                abort(400)
+            if hours:
+                lines.append(f"{label}: {hours}")
+        get_db().execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", ("\n".join(lines), business["id"]))
+        flash("Opening hours saved. Customers can now see them on your deals.", "success")
+        return redirect(url_for("business_dashboard"))
 
     @app.route("/business/analytics")
     @roles_required("business")
@@ -1368,7 +1681,7 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         daily_page, daily_pages, daily_limit, daily_offset = page_window(daily_total, "daily_page")
         daily = db.execute(
-            """SELECT substr(created_at, 1, 10) day, COUNT(*) redemptions, SUM(fee_charged) fees
+            """SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS redemptions, SUM(fee_charged) AS fees
                FROM ledger_entries WHERE business_id = ? AND created_at >= ?
                GROUP BY day ORDER BY day DESC LIMIT ? OFFSET ?""",
             (business["id"], timestamp(utcnow() - timedelta(days=30)), daily_limit, daily_offset),
@@ -1444,14 +1757,140 @@ def create_app(test_config=None):
             title = request.form.get("title", "").strip(); description = request.form.get("description", "").strip(); terms = request.form.get("terms", "").strip(); category = request.form.get("category", ""); expiry = request.form.get("expires_at", ""); limit = request.form.get("redemption_limit", "")
             try: limit = int(limit)
             except ValueError: limit = 0
+            try: daily_limit = int(request.form.get("daily_voucher_limit", "5"))
+            except ValueError: daily_limit = 0
+            raw_customer_limit = request.form.get("max_vouchers_per_customer", "1")
+            try: customer_limit = 0 if raw_customer_limit == "unlimited" else int(raw_customer_limit)
+            except ValueError: customer_limit = -1
+            regular_price_kobo = naira_to_kobo(request.form.get("regular_price", ""))
+            discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
+            product_name = request.form.get("product_name", "").strip()
+            product_description = request.form.get("product_description", "").strip()
+            product_url = request.form.get("product_url", "").strip()
+            product_price_kobo = naira_to_kobo(request.form.get("product_price", ""))
+            product_uploads = request.files.getlist("product_images")
+            add_product = bool(product_name or product_description or product_url or request.form.get("product_price", "") or any(upload.filename for upload in product_uploads))
             try: expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
             except ValueError: expires_at = None
-            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and category in category_names() and 1 <= limit <= 100000 and expires_at and expires_at > utcnow()):
-                flash("Check all deal details: use valid text, a future expiry date, category, and redemption limit.", "danger")
+            valid_product = (not add_product or (2 <= len(product_name) <= 120 and 10 <= len(product_description) <= 1200
+                             and product_price_kobo is not None and 0 <= product_price_kobo <= 1_000_000_000
+                             and valid_product_url(product_url)))
+            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow() and valid_product):
+                flash("Check the prices, voucher limits, expiry, and deal details. Any product added must include a name, description, and price.", "danger")
             else:
-                get_db().execute("INSERT INTO deals (business_id, title, description, category, terms, expires_at, redemption_limit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (business["id"], title, description, category, terms, timestamp(expires_at), limit, timestamp()))
-                flash("Deal published.", "success"); return redirect(url_for("business_dashboard"))
+                db = get_db()
+                images = []
+                product_images = []
+                try:
+                    images = save_deal_images(request.files.getlist("images"), business["id"])
+                    if add_product:
+                        product_images = save_product_images(product_uploads, business["id"])
+                    db.execute("BEGIN IMMEDIATE")
+                    cursor = db.execute(
+                        "INSERT INTO deals (business_id, title, description, category, terms, expires_at, redemption_limit, regular_price_kobo, discount_price_kobo, daily_voucher_limit, max_vouchers_per_customer, is_active, is_approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
+                        (business["id"], title, description, category, terms, timestamp(expires_at), limit,
+                         regular_price_kobo, discount_price_kobo, daily_limit, customer_limit, timestamp()),
+                    )
+                    for order, image in enumerate(images, start=1):
+                        db.execute(
+                            "INSERT INTO deal_images (deal_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (cursor.lastrowid, image["file_name"], image["secure_url"], image["public_id"], image["storage_provider"], order, timestamp()),
+                        )
+                    if add_product:
+                        product_cursor = db.execute(
+                            """INSERT INTO products (business_id, name, description, price_kobo, product_url, created_at)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (business["id"], product_name, product_description, product_price_kobo, product_url or None, timestamp()),
+                        )
+                        for order, image in enumerate(product_images, start=1):
+                            db.execute(
+                                """INSERT INTO product_images
+                                   (product_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                (product_cursor.lastrowid, image["file_name"], image["secure_url"], image["public_id"],
+                                 image["storage_provider"], order, timestamp()),
+                            )
+                    db.commit()
+                except (OSError, ValueError, MediaStorageError) + DATABASE_ERRORS as error:
+                    db.rollback()
+                    cleanup_product_images(images)
+                    cleanup_product_images(product_images)
+                    flash(str(error) or "Could not save your deal.", "danger")
+                else:
+                    flash("Deal submitted for admin approval. It can go live after approval and wallet funding." + (" Your product was also published." if add_product else ""), "success")
+                    return redirect(url_for("business_dashboard"))
         return render_template("create_deal.html", business=business, categories=category_names(), fee=redemption_fee(business=business))
+
+    @app.route("/business/deals/<int:deal_id>/edit", methods=("GET", "POST"))
+    @approved_business_required
+    def edit_deal(deal_id):
+        business = business_for_user(current_user()["id"])
+        db = get_db()
+        deal = db.execute("SELECT * FROM deals WHERE id = ? AND business_id = ?", (deal_id, business["id"])).fetchone()
+        if not deal:
+            abort(404)
+        if request.method == "POST":
+            title = request.form.get("title", "").strip()
+            description = request.form.get("description", "").strip()
+            terms = request.form.get("terms", "").strip()
+            category = request.form.get("category", "")
+            expiry = request.form.get("expires_at", "")
+            try:
+                limit = int(request.form.get("redemption_limit", ""))
+                daily_limit = int(request.form.get("daily_voucher_limit", "5"))
+                raw_customer_limit = request.form.get("max_vouchers_per_customer", "1")
+                customer_limit = 0 if raw_customer_limit == "unlimited" else int(raw_customer_limit)
+            except ValueError:
+                limit = daily_limit = customer_limit = -1
+            regular_price_kobo = naira_to_kobo(request.form.get("regular_price", ""))
+            discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
+            try:
+                expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
+            except ValueError:
+                expires_at = None
+            valid = (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200
+                     and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000
+                     and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None
+                     and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo
+                     and expires_at and expires_at > utcnow())
+            if not valid:
+                flash("Check the prices, voucher limits, expiry, and deal details. The discount price must be lower than the regular price.", "danger")
+            else:
+                images = []
+                previous_images = []
+                try:
+                    images = save_deal_images(request.files.getlist("images"), business["id"])
+                    db.execute("BEGIN IMMEDIATE")
+                    if images:
+                        previous_images = db.execute("SELECT * FROM deal_images WHERE deal_id = ?", (deal_id,)).fetchall()
+                        db.execute("DELETE FROM deal_images WHERE deal_id = ?", (deal_id,))
+                    db.execute(
+                        """UPDATE deals SET title = ?, description = ?, category = ?, terms = ?, expires_at = ?,
+                           redemption_limit = ?, regular_price_kobo = ?, discount_price_kobo = ?, daily_voucher_limit = ?,
+                           max_vouchers_per_customer = ?, is_active = 0, is_approved = 0, approved_at = NULL, approved_by = NULL
+                           WHERE id = ?""",
+                        (title, description, category, terms, timestamp(expires_at), limit, regular_price_kobo,
+                         discount_price_kobo, daily_limit, customer_limit, deal_id),
+                    )
+                    for order, image in enumerate(images, start=1):
+                        db.execute(
+                            """INSERT INTO deal_images (deal_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            (deal_id, image["file_name"], image["secure_url"], image["public_id"],
+                             image["storage_provider"], order, timestamp()),
+                        )
+                    db.commit()
+                except (OSError, ValueError, MediaStorageError) + DATABASE_ERRORS as error:
+                    db.rollback()
+                    cleanup_product_images(images)
+                    flash(str(error) or "Could not update your deal.", "danger")
+                else:
+                    if previous_images:
+                        cleanup_product_images(previous_images)
+                    flash("Deal updated and submitted for admin approval again.", "success")
+                    return redirect(url_for("business_dashboard"))
+        return render_template("create_deal.html", business=business, categories=category_names(),
+                               fee=redemption_fee(business=business), deal=deal)
 
     @app.route("/business/wallet", methods=("GET", "POST"))
     @approved_business_required
@@ -1578,9 +2017,15 @@ def create_app(test_config=None):
                 return render_template("redeem.html", business=business, fee=redemption_fee(business=business))
             db = get_db()
             try:
+                voucher = db.execute(
+                    "SELECT codes.quantity, codes.unit_price_kobo FROM codes WHERE codes.value = ?",
+                    (value,),
+                ).fetchone()
                 fee = redemption_fee(db, business)
                 balance_after = redeem_code(db, business, value, current_user()["id"], timestamp(), fee)
-                flash(f"Code validated. ₦{fee:,} deducted. New wallet balance: ₦{balance_after:,}.", "success")
+                send_low_wallet_alert(business["id"], balance_after)
+                total_due = voucher["quantity"] * voucher["unit_price_kobo"] // 100 if voucher else 0
+                flash(f"Voucher validated for {voucher['quantity'] if voucher else 1} item(s). Customer pays ₦{total_due:,}; ₦{fee:,} deducted. New wallet balance: ₦{balance_after:,}.", "success")
             except ValueError as error:
                 db.rollback(); flash(str(error), "danger")
         return render_template("redeem.html", business=business, fee=redemption_fee(business=business))
@@ -1595,6 +2040,11 @@ def create_app(test_config=None):
         topup_total = db.execute("SELECT COUNT(*) total FROM wallet_transactions WHERE status = 'pending' AND reference NOT LIKE 'PSTK-%'").fetchone()["total"]
         topup_page, topup_pages, limit, topup_offset = page_window(topup_total, "topup_page")
         topups = db.execute("SELECT wallet_transactions.*, businesses.name business_name FROM wallet_transactions JOIN businesses ON businesses.id = wallet_transactions.business_id WHERE status = 'pending' AND reference NOT LIKE 'PSTK-%' ORDER BY created_at ASC LIMIT ? OFFSET ?", (limit, topup_offset)).fetchall()
+        recent_topups = db.execute(
+            """SELECT wallet_transactions.*, businesses.name AS business_name
+               FROM wallet_transactions JOIN businesses ON businesses.id = wallet_transactions.business_id
+               WHERE wallet_transactions.kind = 'topup' ORDER BY wallet_transactions.created_at DESC LIMIT 10"""
+        ).fetchall()
         business_total = db.execute("SELECT COUNT(*) total FROM businesses").fetchone()["total"]
         wallet_page, wallet_pages, limit, wallet_offset = page_window(business_total, "wallet_page")
         businesses = db.execute("SELECT * FROM businesses ORDER BY wallet_balance ASC LIMIT ? OFFSET ?", (limit, wallet_offset)).fetchall()
@@ -1603,7 +2053,7 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         revenue = db.execute("SELECT COALESCE(SUM(fee_charged), 0) total FROM ledger_entries").fetchone()["total"]
         redemption_count = db.execute("SELECT COUNT(*) total FROM ledger_entries").fetchone()["total"]
-        return render_template("admin_dashboard.html", ledger=ledger, topups=topups, businesses=businesses,
+        return render_template("admin_dashboard.html", ledger=ledger, topups=topups, recent_topups=recent_topups, businesses=businesses,
                                revenue=revenue, redemption_count=redemption_count, fee=redemption_fee(db),
                                pending_business_count=pending_business_count, business_total=business_total,
                                ledger_page=ledger_page, ledger_pages=ledger_pages,
@@ -1656,6 +2106,81 @@ def create_app(test_config=None):
                                page=page, total_pages=total_pages, total_businesses=total_businesses,
                                status_counts=status_counts, query=query, status=status)
 
+    @app.route("/admin/deals")
+    @roles_required("admin")
+    def admin_deals():
+        db = get_db()
+        status = request.args.get("status", "pending")
+        if status not in {"pending", "live", "all"}:
+            status = "pending"
+        where = ""
+        if status == "pending":
+            where = "WHERE deals.is_approved = 0"
+        elif status == "live":
+            where = "WHERE deals.is_approved = 1 AND deals.is_active = 1"
+        total = db.execute(
+            f"SELECT COUNT(*) AS total FROM deals {where}"
+        ).fetchone()["total"]
+        page, total_pages, per_page, offset = page_window(total)
+        deals = db.execute(
+            f"""SELECT deals.*, businesses.name AS business_name, businesses.wallet_balance,
+                       businesses.is_approved AS business_approved, businesses.is_blocked
+                FROM deals JOIN businesses ON businesses.id = deals.business_id
+                {where} ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
+            (per_page, offset),
+        ).fetchall()
+        return render_template("admin_deals.html", deals=deals, status=status, page=page,
+                               total_pages=total_pages, total=total, fee=redemption_fee(db))
+
+    @app.post("/admin/deals/<int:deal_id>/approve")
+    @roles_required("admin")
+    def approve_deal(deal_id):
+        db = get_db()
+        deal = db.execute(
+            """SELECT deals.*, businesses.wallet_balance, businesses.is_approved AS business_approved,
+                      businesses.is_blocked FROM deals JOIN businesses ON businesses.id = deals.business_id
+               WHERE deals.id = ?""",
+            (deal_id,),
+        ).fetchone()
+        if not deal:
+            abort(404)
+        if deal["is_approved"]:
+            flash("This deal has already been approved.", "info")
+        elif not deal["business_approved"] or deal["is_blocked"]:
+            flash("Approve the business before approving its deals.", "danger")
+        elif deal["wallet_balance"] < redemption_fee(db):
+            flash(f"This business needs at least ₦{redemption_fee(db):,} in its wallet before the deal can go live.", "danger")
+        else:
+            db.execute(
+                "UPDATE deals SET is_approved = 1, is_active = 1, approved_at = ?, approved_by = ? WHERE id = ?",
+                (timestamp(), current_user()["id"], deal_id),
+            )
+            record_admin_action("approve_deal", "deal", deal_id, deal["title"])
+            flash("Deal approved and live.", "success")
+        return redirect(url_for("admin_deals"))
+
+    @app.route("/admin/users")
+    @roles_required("admin")
+    def admin_users():
+        db = get_db()
+        query = request.args.get("q", "").strip()
+        where = ""
+        params = []
+        if query:
+            where = "WHERE users.name LIKE ? OR users.phone LIKE ? OR users.email LIKE ?"
+            params = [f"%{query}%"] * 3
+        total = db.execute(f"SELECT COUNT(*) AS total FROM users {where}", params).fetchone()["total"]
+        page, total_pages, per_page, offset = page_window(total)
+        users = db.execute(
+            f"""SELECT users.*, consumer_profiles.area, businesses.name AS business_name
+                 FROM users LEFT JOIN consumer_profiles ON consumer_profiles.user_id = users.id
+                 LEFT JOIN businesses ON businesses.owner_id = users.id
+                 {where} ORDER BY users.created_at DESC LIMIT ? OFFSET ?""",
+            (*params, per_page, offset),
+        ).fetchall()
+        return render_template("admin_users.html", users=users, query=query, page=page,
+                               total_pages=total_pages, total=total)
+
     @app.route("/admin/analytics")
     @roles_required("admin")
     def admin_analytics():
@@ -1674,7 +2199,7 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         daily_page, daily_pages, per_page, daily_offset = page_window(daily_total, "daily_page")
         daily = db.execute(
-            """SELECT substr(created_at, 1, 10) day, COUNT(*) redemptions, SUM(fee_charged) revenue
+            """SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS redemptions, SUM(fee_charged) AS revenue
                FROM ledger_entries WHERE created_at >= ? GROUP BY day ORDER BY day DESC LIMIT ? OFFSET ?""",
             (timestamp(utcnow() - timedelta(days=30)), per_page, daily_offset),
         ).fetchall()
@@ -1712,16 +2237,26 @@ def create_app(test_config=None):
             if not 2 <= len(name) <= 60:
                 flash("Category names must be between 2 and 60 characters.", "danger")
             else:
+                images = []
                 try:
+                    images = save_category_image(request.files.get("image"))
+                    image = images[0] if images else {}
                     cursor = db.execute(
-                        "INSERT INTO categories (name, created_at, created_by) VALUES (?, ?, ?)",
-                        (name, timestamp(), current_user()["id"]),
+                        """INSERT INTO categories
+                           (name, image_file_name, image_secure_url, image_public_id, image_storage_provider, created_at, created_by)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (name, image.get("file_name"), image.get("secure_url"), image.get("public_id"),
+                         image.get("storage_provider"), timestamp(), current_user()["id"]),
                     )
                     record_admin_action("create_category", "category", cursor.lastrowid, name)
                     flash("Category created and available to businesses.", "success")
                     return redirect(url_for("admin_categories"))
                 except INTEGRITY_ERRORS:
+                    cleanup_product_images(images)
                     flash("That category already exists.", "danger")
+                except (OSError, ValueError, MediaStorageError) as error:
+                    cleanup_product_images(images)
+                    flash(str(error) or "Could not save the category thumbnail.", "danger")
         total = db.execute("SELECT COUNT(*) total FROM categories").fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
         categories = db.execute(
@@ -1747,6 +2282,83 @@ def create_app(test_config=None):
         record_admin_action("activate_category" if new_state else "archive_category", "category", category_id, category["name"])
         flash("Category availability updated.", "success")
         return redirect(url_for("admin_categories"))
+
+    @app.post("/admin/categories/<int:category_id>/delete")
+    @roles_required("admin")
+    def delete_category(category_id):
+        db = get_db()
+        category = db.execute("SELECT * FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not category:
+            abort(404)
+        usage = db.execute(
+            """SELECT
+                   (SELECT COUNT(*) FROM businesses WHERE category = ?) business_count,
+                   (SELECT COUNT(*) FROM deals WHERE category = ?) deal_count""",
+            (category["name"], category["name"]),
+        ).fetchone()
+        if usage["business_count"] or usage["deal_count"]:
+            flash("This category is in use and cannot be deleted. Archive it instead.", "warning")
+            return redirect(url_for("admin_categories"))
+        db.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+        image = {
+            "file_name": category["image_file_name"],
+            "secure_url": category["image_secure_url"],
+            "public_id": category["image_public_id"],
+            "storage_provider": category["image_storage_provider"],
+        }
+        if image["file_name"] or image["public_id"]:
+            cleanup_product_images([image])
+        record_admin_action("delete_category", "category", category_id, category["name"])
+        flash("Category deleted.", "success")
+        return redirect(url_for("admin_categories"))
+
+    @app.route("/admin/categories/<int:category_id>/edit", methods=("GET", "POST"))
+    @roles_required("admin")
+    def edit_category(category_id):
+        db = get_db()
+        category = db.execute("SELECT * FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not category:
+            abort(404)
+        if request.method == "POST":
+            name = " ".join(request.form.get("name", "").strip().split())
+            if not 2 <= len(name) <= 60:
+                flash("Category names must be between 2 and 60 characters.", "danger")
+            else:
+                images = []
+                try:
+                    images = save_category_image(request.files.get("image"))
+                    image = images[0] if images else None
+                    db.execute("BEGIN IMMEDIATE")
+                    db.execute(
+                        """UPDATE categories SET name = ?, image_file_name = ?, image_secure_url = ?,
+                           image_public_id = ?, image_storage_provider = ? WHERE id = ?""",
+                        (name, image["file_name"] if image else category["image_file_name"],
+                         image["secure_url"] if image else category["image_secure_url"],
+                         image["public_id"] if image else category["image_public_id"],
+                         image["storage_provider"] if image else category["image_storage_provider"], category_id),
+                    )
+                    if name != category["name"]:
+                        db.execute("UPDATE businesses SET category = ? WHERE category = ?", (name, category["name"]))
+                        db.execute("UPDATE deals SET category = ? WHERE category = ?", (name, category["name"]))
+                    db.commit()
+                except INTEGRITY_ERRORS:
+                    db.rollback()
+                    cleanup_product_images(images)
+                    flash("That category name already exists.", "danger")
+                except (OSError, ValueError, MediaStorageError) + DATABASE_ERRORS as error:
+                    db.rollback()
+                    cleanup_product_images(images)
+                    flash(str(error) or "Could not update the category.", "danger")
+                else:
+                    if image and (category["image_file_name"] or category["image_public_id"]):
+                        cleanup_product_images([{
+                            "file_name": category["image_file_name"], "secure_url": category["image_secure_url"],
+                            "public_id": category["image_public_id"], "storage_provider": category["image_storage_provider"],
+                        }])
+                    record_admin_action("edit_category", "category", category_id, name)
+                    flash("Category updated.", "success")
+                    return redirect(url_for("admin_categories"))
+        return render_template("edit_category.html", category=category)
 
     @app.route("/admin/team", methods=("GET", "POST"))
     @roles_required("admin")
@@ -1853,7 +2465,7 @@ def create_app(test_config=None):
             transaction = db.execute("SELECT * FROM wallet_transactions WHERE id = ? AND kind = 'topup' AND status = 'pending' AND reference NOT LIKE 'PSTK-%'", (transaction_id,)).fetchone()
             if not transaction: raise ValueError("This top-up is no longer pending.")
             db.execute("UPDATE wallet_transactions SET status = 'approved', approved_at = ?, approved_by = ? WHERE id = ?", (timestamp(), current_user()["id"], transaction_id))
-            db.execute("UPDATE businesses SET wallet_balance = wallet_balance + ?, needs_top_up = 0 WHERE id = ?", (transaction["amount"], transaction["business_id"]))
+            db.execute("UPDATE businesses SET wallet_balance = wallet_balance + ?, needs_top_up = 0, low_balance_alerted_at = NULL WHERE id = ?", (transaction["amount"], transaction["business_id"]))
             db.execute("INSERT INTO admin_audit_logs (admin_id, action, target_type, target_id, details, created_at) VALUES (?, 'approve_topup', 'wallet_transaction', ?, ?, ?)", (current_user()["id"], transaction_id, transaction["reference"], timestamp()))
             db.commit(); flash("Top-up approved and wallet credited.", "success")
         except ValueError as error:
