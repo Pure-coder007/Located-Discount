@@ -8,7 +8,7 @@
   <div class="mx-auto grid max-w-[100rem] gap-5 lg:grid-cols-[15.5rem_minmax(0,1fr)]">
     <aside class="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(0,0,0,.04)] lg:sticky lg:top-7 lg:h-[calc(100vh-3.5rem)]">
       <a href="{{ url_for('dashboard') }}" class="flex items-center gap-3 rounded-2xl px-3 py-3 text-ink">
-        <span class="grid h-10 w-10 place-items-center rounded-xl bg-black text-sm font-semibold text-white shadow-sm">LD</span>
+        <img class="portal-brand-logo" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount">
         <span><span class="block text-base font-extrabold tracking-tight">Locatediscount</span><span class="block text-[11px] font-semibold text-slate-500">{% if current_user.role == 'admin' %}Platform control{% else %}Business workspace{% endif %}</span></span>
       </a>
       <div class="mt-5 border-t border-slate-200 pt-5">
@@ -26,10 +26,14 @@
           <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
           {% else %}
           <a href="{{ url_for('business_dashboard') }}" class="portal-nav {% if request.endpoint == 'business_dashboard' %}portal-nav-active{% endif %}"><i class="bi bi-grid-1x2"></i> Overview</a>
+          {% if current_business and current_business.is_approved %}
           <a href="{{ url_for('create_deal') }}" class="portal-nav {% if request.endpoint == 'create_deal' %}portal-nav-active{% endif %}"><i class="bi bi-ticket-perforated"></i> Create a deal</a>
           <a href="{{ url_for('business_analytics') }}" class="portal-nav {% if request.endpoint == 'business_analytics' %}portal-nav-active{% endif %}"><i class="bi bi-graph-up"></i> Analytics</a>
           <a href="{{ url_for('wallet') }}" class="portal-nav {% if request.endpoint == 'wallet' %}portal-nav-active{% endif %}"><i class="bi bi-wallet2"></i> Wallet</a>
           <a href="{{ url_for('redeem') }}" class="portal-nav {% if request.endpoint == 'redeem' %}portal-nav-active{% endif %}"><i class="bi bi-qr-code-scan"></i> Redeem voucher</a>
+          {% else %}
+          <span class="portal-nav-disabled" aria-disabled="true"><i class="bi bi-lock"></i> Awaiting approval</span>
+          {% endif %}
           <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
           {% endif %}
         </nav>

@@ -29,15 +29,20 @@
 .home-categories { padding-top: 26px; }
 .category-location { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d5e2fb; border-radius: 999px; padding: 7px 10px; background: #f2f6ff; color: #294d98; font-size: 8px; font-weight: 800; }
 .category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.category-card { position: relative; display: block; min-height: 215px; overflow: hidden; border: 1px solid #d5e2fb; border-radius: 16px; background: #eaf1ff; color: #fff; box-shadow: 0 8px 22px rgba(23, 55, 116, .1); text-decoration: none; transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
+.category-card { position: relative; display: block; min-height: 286px; overflow: hidden; border: 1px solid #d5e2fb; border-radius: 16px; background: #eaf1ff; color: #fff; box-shadow: 0 8px 22px rgba(23, 55, 116, .1); text-decoration: none; transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
 .category-card:hover { transform: translateY(-4px); border-color: #8faee5; box-shadow: 0 16px 32px rgba(23, 55, 116, .18); }
-.category-card > img { width: 100%; height: 215px; object-fit: cover; transition: transform .35s ease; }
+.category-card > img { width: 100%; height: 222px; object-fit: cover; transition: transform .35s ease; }
 .category-card:hover > img { transform: scale(1.06); }
-.category-card-fallback { display: grid; width: 100%; height: 215px; place-items: center; background: #dbe7ff; color: #173774; font-size: 34px; }
-.category-card-overlay { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 14px; background: rgba(10, 31, 76, .88); }
+.category-card-fallback { display: grid; width: 100%; height: 222px; place-items: center; background: #dbe7ff; color: #173774; font-size: 34px; }
+.category-card-overlay { position: absolute; right: 0; bottom: 64px; left: 0; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 38px 16px 17px; background: linear-gradient(0deg, rgba(8, 25, 62, .84), rgba(8, 25, 62, 0)); }
 .category-card-overlay small { grid-column: 1 / -1; color: #dce8ff; font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
 .category-card-overlay strong { overflow: hidden; font-size: 13px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .category-card-overlay i { align-self: end; font-size: 14px; }
+.category-card-meta { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 9px; min-height: 64px; padding: 10px 15px; background: #fff; color: #65728a; font-size: 8px; font-weight: 700; }
+.category-card-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.category-card-meta > span:first-child i { color: #294d98; }
+.category-card-meta b { grid-column: 1 / -1; color: #294d98; font-size: 8px; letter-spacing: .04em; text-transform: uppercase; }
+.category-card-stars { color: #efb429; font-size: 11px; letter-spacing: 1px; white-space: nowrap; }
 .category-empty { grid-column: 1 / -1; padding: 34px 20px; border: 1px dashed #c6d7b8; border-radius: 16px; background: #fbfdf8; color: #607166; text-align: center; }
 .category-empty i { display: block; margin-bottom: 9px; color: #88ad5a; font-size: 25px; }
 .category-empty strong { display: block; color: #385244; font-size: 11px; }
@@ -54,8 +59,9 @@
   .home-product-card > img, .home-product-placeholder { width: 118px; }
   .deal-row > a > img { width: 120px; height: 104px; }
   .category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .category-card, .category-card > img, .category-card-fallback { min-height: 185px; height: 185px; }
-  .category-card-overlay { padding: 30px 11px 11px; }
+  .category-card, .category-card > img, .category-card-fallback { min-height: 230px; height: 230px; }
+  .category-card { min-height: 294px; height: 294px; }
+  .category-card-overlay { bottom: 64px; padding: 36px 11px 11px; }
   .category-card-overlay strong { font-size: 11px; }
   .category-location { display: none; }
   .home-categories .app-pagination { align-items: flex-start; flex-direction: column; }

@@ -1,5 +1,5 @@
 /* Larger, more legible presentation layer for the directory homepage. */
-body { font-size: 17px; }
+body { font-size: 14px; }
 .site-header { height: 92px; }
 .nav-shell { max-width: 1320px; padding: 0 40px; }
 .site-logo { gap: 11px; font-size: 20px; }
@@ -31,9 +31,9 @@ body { font-size: 17px; }
 .deal-row { grid-template-columns: 235px 1fr 145px; gap: 27px; padding: 20px 0; }
 .deal-row > img { width: 235px; height: 122px; }
 .deal-body span { font-size: 11px; }
-.deal-body h3 { margin: 8px 0 7px; font-size: 19px; }
-.deal-body p { font-size: 14px; line-height: 1.55; }
-.deal-body small { margin-top: 10px; font-size: 12px; }
+.deal-body h3 { margin: 6px 0 5px; font-size: 16px; }
+.deal-body p { font-size: 12px; line-height: 1.45; }
+.deal-body small { margin-top: 8px; font-size: 10px; }
 .deal-action strong { font-size: 12px; }
 .deal-action a { margin-top: 10px; font-size: 14px; }
 .how > h2 { font-size: 32px; }
@@ -54,7 +54,7 @@ body { font-size: 17px; }
 .footer-grid a:not(.site-logo) { margin-bottom: 12px; font-size: 13px; }
 .footer-bottom { padding: 18px; font-size: 11px; }
 @media (max-width: 760px) {
-  body { font-size: 16px; }
+  body { font-size: 14px; }
   .site-header { height: auto; }
   .nav-shell { padding: 16px 20px; }
   .site-logo { font-size: 16px; }

@@ -166,13 +166,15 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         # even when that vendor has several different deals.
         connection = sqlite3.connect(self.database)
         business_id = connection.execute("SELECT id FROM businesses WHERE name = 'Fresh Bowl'").fetchone()[0]
-        cursor = connection.execute(
+        connection.execute(
             """INSERT INTO deals (business_id, title, description, category, terms, expires_at,
                redemption_limit, is_active, is_approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)""",
             (business_id, "Free drink with dinner", "A free drink with every dinner order this week.",
              "Food & Drink", "One drink per qualifying dinner order.", "2030-12-31T17:00:00+00:00", 10, timestamp()),
         )
-        second_deal_id = cursor.lastrowid
+        second_deal_id = connection.execute(
+            "SELECT id FROM deals WHERE title = 'Free drink with dinner'"
+        ).fetchone()[0]
         connection.commit()
         connection.close()
         response = self.post(f"/deals/{second_deal_id}/claim", {}, follow_redirects=True)
@@ -236,6 +238,36 @@ class LocatediscountWorkflowTests(unittest.TestCase):
     def test_post_without_csrf_is_rejected(self):
         response = self.client.post("/login", data={"email": "any@example.com", "password": "not-used"})
         self.assertEqual(response.status_code, 400)
+
+    def test_pending_business_can_view_dashboard_but_cannot_operate(self):
+        response = self.post(
+            "/register",
+            {
+                "name": "Pending Owner", "email": "pending@example.com",
+                "phone": "+2348012345600", "password": "PendingPassword123",
+                "business_name": "Pending Shop", "category": "Shopping",
+                "address": "10 Review Street", "city": "Lagos",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Your business is under review", response.data)
+        self.assertIn(b"Pending Shop", response.data)
+
+        dashboard = self.client.get("/business")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Awaiting approval", dashboard.data)
+
+        legacy_dashboard = self.client.get("/dashboard")
+        self.assertEqual(legacy_dashboard.status_code, 200)
+        self.assertIn(b"Your business is under review", legacy_dashboard.data)
+
+        blocked_action = self.client.get("/business/deals/new", follow_redirects=True)
+        self.assertEqual(blocked_action.status_code, 200)
+        self.assertIn(b"Publishing, wallet, and redemption are disabled", blocked_action.data)
+        connection = sqlite3.connect(self.database)
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM deals").fetchone()[0], 0)
+        connection.close()
 
     def test_product_images_use_cloudinary_urls_when_configured(self):
         self.post(
@@ -401,16 +433,19 @@ class LocatediscountWorkflowTests(unittest.TestCase):
 
         connection = sqlite3.connect(self.database)
         for index in range(6):
-            cursor = connection.execute(
+            connection.execute(
                 """INSERT INTO users (email, phone, password_hash, role, name, created_at)
                    VALUES (?, ?, ?, 'business', ?, ?)""",
                 (f"page-{index}@example.com", f"+23480300000{index:02d}",
                  generate_password_hash("BusinessPassword123"), f"Owner {index}", timestamp()),
             )
+            owner_id = connection.execute(
+                "SELECT id FROM users WHERE email = ?", (f"page-{index}@example.com",)
+            ).fetchone()[0]
             connection.execute(
                 """INSERT INTO businesses (owner_id, name, category, address, city, created_at)
                    VALUES (?, ?, 'Shopping', '12 Test Street', 'Lagos', ?)""",
-                (cursor.lastrowid, f"Pagination Business {index}", timestamp()),
+                (owner_id, f"Pagination Business {index}", timestamp()),
             )
         connection.commit()
         connection.close()

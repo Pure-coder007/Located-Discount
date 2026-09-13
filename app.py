@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import UUID
 from email.message import EmailMessage
 
 import click
@@ -29,6 +30,7 @@ from locatediscount.database import (
     POSTGRES_MIGRATIONS,
     POSTGRES_SCHEMA,
     PostgresDatabase,
+    SQLiteDatabase,
 )
 from locatediscount.media import MediaStorageError, destroy_product_image, upload_product_image
 from locatediscount.paystack import PaystackError, initialize_transaction, verify_transaction
@@ -45,6 +47,10 @@ DEFAULT_REDEMPTION_FEE = 500
 MAX_PRODUCT_IMAGES = 5
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
 PASSWORD_RESET_TTL = timedelta(minutes=30)
+SQLITE_UUID_DEFAULT = (
+    "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || "
+    "lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))))"
+)
 POLICY_DOCUMENTS = {
     "terms": ("Terms of Service", "LOCATEDISCOUNT TERMS OF SERVICE (1).pdf"),
     "privacy": ("Privacy Policy", "Locatediscount Privacy Policy (1).pdf"),
@@ -119,10 +125,11 @@ def create_app(test_config=None):
             if app.config["DATABASE_URL"]:
                 g.db = PostgresDatabase(app.config["DATABASE_URL"])
             else:
-                g.db = sqlite3.connect(app.config["DATABASE"], isolation_level=None)
-                g.db.row_factory = sqlite3.Row
-                g.db.execute("PRAGMA foreign_keys = ON")
-                g.db.execute("PRAGMA journal_mode = WAL")
+                connection = sqlite3.connect(app.config["DATABASE"], isolation_level=None)
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys = ON")
+                connection.execute("PRAGMA journal_mode = WAL")
+                g.db = SQLiteDatabase(connection)
         return g.db
 
     @app.teardown_appcontext
@@ -168,9 +175,9 @@ def create_app(test_config=None):
                 )
             return
         db.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS users (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
               email TEXT NOT NULL UNIQUE COLLATE NOCASE,
               phone TEXT NOT NULL UNIQUE,
               password_hash TEXT NOT NULL,
@@ -180,8 +187,8 @@ def create_app(test_config=None):
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS businesses (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              owner_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              owner_id TEXT NOT NULL UNIQUE REFERENCES users(id),
               name TEXT NOT NULL,
               category TEXT NOT NULL,
               address TEXT NOT NULL,
@@ -197,29 +204,29 @@ def create_app(test_config=None):
               low_balance_alerted_at TEXT
             );
             CREATE TABLE IF NOT EXISTS consumer_profiles (
-              user_id INTEGER PRIMARY KEY REFERENCES users(id),
+              user_id TEXT PRIMARY KEY REFERENCES users(id),
               area TEXT,
               favorite_categories TEXT NOT NULL DEFAULT '',
               notifications_enabled INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS favorites (
-              user_id INTEGER NOT NULL REFERENCES users(id),
-              deal_id INTEGER NOT NULL REFERENCES deals(id),
+              user_id TEXT NOT NULL REFERENCES users(id),
+              deal_id TEXT NOT NULL REFERENCES deals(id),
               created_at TEXT NOT NULL,
               PRIMARY KEY (user_id, deal_id)
             );
             CREATE TABLE IF NOT EXISTS consumer_devices (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              user_id INTEGER NOT NULL REFERENCES users(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              user_id TEXT NOT NULL REFERENCES users(id),
               token_hash TEXT NOT NULL UNIQUE,
               created_at TEXT NOT NULL,
               last_seen_at TEXT NOT NULL,
               revoked_at TEXT
             );
             CREATE TABLE IF NOT EXISTS deals (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              business_id INTEGER NOT NULL REFERENCES businesses(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              business_id TEXT NOT NULL REFERENCES businesses(id),
               title TEXT NOT NULL,
               description TEXT NOT NULL,
               category TEXT NOT NULL,
@@ -234,25 +241,25 @@ def create_app(test_config=None):
               max_vouchers_per_customer INTEGER NOT NULL DEFAULT 1,
               is_approved INTEGER NOT NULL DEFAULT 0,
               approved_at TEXT,
-              approved_by INTEGER REFERENCES users(id),
+              approved_by TEXT REFERENCES users(id),
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS codes (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              deal_id INTEGER NOT NULL REFERENCES deals(id),
-              user_id INTEGER NOT NULL REFERENCES users(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              deal_id TEXT NOT NULL REFERENCES deals(id),
+              user_id TEXT NOT NULL REFERENCES users(id),
               value TEXT NOT NULL UNIQUE,
               status TEXT NOT NULL CHECK(status IN ('active','redeemed','expired')) DEFAULT 'active',
               expires_at TEXT NOT NULL,
               created_at TEXT NOT NULL,
               redeemed_at TEXT,
-              redeemed_by INTEGER REFERENCES users(id),
+              redeemed_by TEXT REFERENCES users(id),
               quantity INTEGER NOT NULL DEFAULT 1,
               unit_price_kobo INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS deal_images (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              deal_id TEXT NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
               file_name TEXT NOT NULL,
               secure_url TEXT,
               public_id TEXT,
@@ -262,8 +269,8 @@ def create_app(test_config=None):
               UNIQUE(deal_id, sort_order)
             );
             CREATE TABLE IF NOT EXISTS products (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              business_id INTEGER NOT NULL REFERENCES businesses(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              business_id TEXT NOT NULL REFERENCES businesses(id),
               name TEXT NOT NULL,
               description TEXT NOT NULL,
               price_kobo INTEGER,
@@ -272,8 +279,8 @@ def create_app(test_config=None):
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS product_images (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
               file_name TEXT NOT NULL,
               secure_url TEXT,
               public_id TEXT,
@@ -284,8 +291,8 @@ def create_app(test_config=None):
             );
             DROP INDEX IF EXISTS one_active_code_per_deal_user;
             CREATE TABLE IF NOT EXISTS wallet_transactions (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              business_id INTEGER NOT NULL REFERENCES businesses(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              business_id TEXT NOT NULL REFERENCES businesses(id),
               amount INTEGER NOT NULL,
               kind TEXT NOT NULL CHECK(kind IN ('topup','redemption','adjustment')),
               status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','posted')),
@@ -293,13 +300,13 @@ def create_app(test_config=None):
               note TEXT,
               created_at TEXT NOT NULL,
               approved_at TEXT,
-              approved_by INTEGER REFERENCES users(id)
+              approved_by TEXT REFERENCES users(id)
             );
             CREATE TABLE IF NOT EXISTS ledger_entries (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              business_id INTEGER NOT NULL REFERENCES businesses(id),
-              deal_id INTEGER NOT NULL REFERENCES deals(id),
-              code_id INTEGER NOT NULL UNIQUE REFERENCES codes(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              business_id TEXT NOT NULL REFERENCES businesses(id),
+              deal_id TEXT NOT NULL REFERENCES deals(id),
+              code_id TEXT NOT NULL UNIQUE REFERENCES codes(id),
               fee_charged INTEGER NOT NULL,
               wallet_balance_after INTEGER NOT NULL,
               created_at TEXT NOT NULL
@@ -308,19 +315,19 @@ def create_app(test_config=None):
               setting_key TEXT PRIMARY KEY,
               integer_value INTEGER NOT NULL,
               updated_at TEXT NOT NULL,
-              updated_by INTEGER REFERENCES users(id)
+              updated_by TEXT REFERENCES users(id)
             );
             CREATE TABLE IF NOT EXISTS admin_audit_logs (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              admin_id INTEGER NOT NULL REFERENCES users(id),
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              admin_id TEXT NOT NULL REFERENCES users(id),
               action TEXT NOT NULL,
               target_type TEXT NOT NULL,
-              target_id INTEGER NOT NULL,
+              target_id TEXT NOT NULL,
               details TEXT NOT NULL,
               created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS categories (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
               name TEXT NOT NULL UNIQUE COLLATE NOCASE,
               is_active INTEGER NOT NULL DEFAULT 1,
               image_file_name TEXT,
@@ -328,11 +335,11 @@ def create_app(test_config=None):
               image_public_id TEXT,
               image_storage_provider TEXT,
               created_at TEXT NOT NULL,
-              created_by INTEGER REFERENCES users(id)
+              created_by TEXT REFERENCES users(id)
             );
             CREATE TABLE IF NOT EXISTS password_reset_tokens (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
               token_hash TEXT NOT NULL UNIQUE,
               expires_at TEXT NOT NULL,
               used_at TEXT,
@@ -375,17 +382,17 @@ def create_app(test_config=None):
             ("max_vouchers_per_customer", "INTEGER NOT NULL DEFAULT 1"),
             ("is_approved", "INTEGER NOT NULL DEFAULT 0"),
             ("approved_at", "TEXT"),
-            ("approved_by", "INTEGER REFERENCES users(id)"),
+            ("approved_by", "TEXT REFERENCES users(id)"),
         ):
             if name not in deal_columns:
                 db.execute(f"ALTER TABLE deals ADD COLUMN {name} {definition}")
         db.execute("UPDATE deals SET is_approved = 1 WHERE is_active = 1 AND is_approved = 0")
         user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
         if "created_by_admin" not in user_columns:
-            db.execute("ALTER TABLE users ADD COLUMN created_by_admin INTEGER REFERENCES users(id)")
+            db.execute("ALTER TABLE users ADD COLUMN created_by_admin TEXT REFERENCES users(id)")
         code_columns = {row["name"] for row in db.execute("PRAGMA table_info(codes)").fetchall()}
         if "device_id" not in code_columns:
-            db.execute("ALTER TABLE codes ADD COLUMN device_id INTEGER REFERENCES consumer_devices(id)")
+            db.execute("ALTER TABLE codes ADD COLUMN device_id TEXT REFERENCES consumer_devices(id)")
         if "quantity" not in code_columns:
             db.execute("ALTER TABLE codes ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1")
         if "unit_price_kobo" not in code_columns:
@@ -529,9 +536,22 @@ def create_app(test_config=None):
                 created_deals += 1
         click.echo(f"Demo data ready: {created_vendors} vendors, {created_products} products, {created_deals} deals added.")
 
+    def session_id_is_compatible(value):
+        """Reject numeric cookies issued before the PostgreSQL UUID migration."""
+        if not value:
+            return False
+        if not app.config["DATABASE_URL"]:
+            return isinstance(value, (int, str))
+        try:
+            UUID(str(value))
+            return True
+        except (TypeError, ValueError, AttributeError):
+            return False
+
     def current_user():
         user_id = session.get("user_id")
-        if not user_id:
+        if not session_id_is_compatible(user_id):
+            session.pop("user_id", None)
             return None
         return get_db().execute("SELECT * FROM users WHERE id = ? AND is_active = 1", (user_id,)).fetchone()
 
@@ -551,8 +571,11 @@ def create_app(test_config=None):
             file_name = category["image_file_name"] if "image_file_name" in category.keys() else None
             return secure_url or (url_for("static", filename="uploads/products/" + file_name) if file_name else "")
 
+        user = current_user()
+        business = business_for_user(user["id"]) if user and user["role"] == "business" else None
         return {
-            "current_user": current_user(),
+            "current_user": user,
+            "current_business": business,
             "csrf_token": session.get("csrf_token"),
             "pagination_url": pagination_url,
             "product_image_url": product_image_url,
@@ -633,7 +656,8 @@ def create_app(test_config=None):
     def current_consumer_profile():
         """A customer session is separate from staff authentication."""
         consumer_id = session.get("consumer_id")
-        if not isinstance(consumer_id, int):
+        if not session_id_is_compatible(consumer_id):
+            session.pop("consumer_id", None)
             return None
         return get_db().execute(
             """SELECT users.id, users.name, users.phone, consumer_profiles.area
@@ -719,7 +743,7 @@ def create_app(test_config=None):
         """Return a deterministic, changing daily allocation for an offer."""
         day = day or utcnow().date()
         base = max(1, deal["daily_voucher_limit"])
-        variation = ((deal["id"] * 37 + day.toordinal()) % 3) - 1
+        variation = ((int(hashlib.sha256(str(deal["id"]).encode()).hexdigest()[:8], 16) + day.toordinal()) % 3) - 1
         return max(1, base + variation)
 
     def daily_voucher_remaining(db, deal):
@@ -1205,14 +1229,15 @@ def create_app(test_config=None):
                 try:
                     db.execute("BEGIN IMMEDIATE")
                     cursor = db.execute("INSERT INTO users (email, phone, password_hash, role, name, created_at) VALUES (?, ?, ?, ?, ?, ?)", (email, phone, generate_password_hash(password), role, name, timestamp()))
-                    db.execute("INSERT INTO businesses (owner_id, name, category, address, city, created_at) VALUES (?, ?, ?, ?, ?, ?)", (cursor.lastrowid, business_name, category, address, city, timestamp()))
+                    user_id = cursor.lastrowid
+                    db.execute("INSERT INTO businesses (owner_id, name, category, address, city, created_at) VALUES (?, ?, ?, ?, ?, ?)", (user_id, business_name, category, address, city, timestamp()))
                     db.commit()
                 except INTEGRITY_ERRORS:
                     db.rollback(); flash("That email or phone number is already registered.", "danger")
                 else:
-                    session.clear(); session["user_id"] = cursor.lastrowid; session["csrf_token"] = secrets.token_urlsafe(32)
+                    session.clear(); session["user_id"] = user_id; session["csrf_token"] = secrets.token_urlsafe(32)
                     flash("Your account has been created and is pending admin approval.", "success")
-                    return redirect(url_for("dashboard"))
+                    return redirect(url_for("business_dashboard"))
         return render_template("register.html", categories=category_names())
 
     @app.route("/login", methods=("GET", "POST"))
@@ -1326,9 +1351,13 @@ def create_app(test_config=None):
     @login_required
     def dashboard():
         role = current_user()["role"]
+        # Keep existing /dashboard bookmarks working without making business
+        # owners pass through a redirect before their workspace can render.
+        if role == "business":
+            return business_dashboard()
         return redirect(url_for({"consumer": "home", "business": "business_dashboard", "admin": "admin_dashboard"}[role]))
 
-    @app.route("/deals/<int:deal_id>")
+    @app.route("/deals/<string:deal_id>")
     def deal_detail(deal_id):
         deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
         if not deal: abort(404)
@@ -1365,7 +1394,7 @@ def create_app(test_config=None):
         codes = get_db().execute("SELECT codes.*, deals.title, businesses.name business_name FROM codes JOIN deals ON deals.id = codes.deal_id JOIN businesses ON businesses.id = deals.business_id WHERE codes.user_id = ? ORDER BY codes.created_at DESC", (current_user()["id"],)).fetchall()
         return render_template("consumer_dashboard.html", deals=deals, codes=codes, categories=categories, selected_category=category, query=query)
 
-    @app.route("/deals/<int:deal_id>/claim", methods=("GET", "POST"))
+    @app.route("/deals/<string:deal_id>/claim", methods=("GET", "POST"))
     def claim_code(deal_id):
         db = get_db()
         deal = db.execute(
@@ -1455,7 +1484,7 @@ def create_app(test_config=None):
             db.rollback(); flash(str(error), "danger")
         return redirect(url_for("deal_detail", deal_id=deal_id))
 
-    @app.route("/codes/<int:code_id>")
+    @app.route("/codes/<string:code_id>")
     def code_detail(code_id):
         consumer = current_consumer_profile()
         if not consumer:
@@ -1503,7 +1532,7 @@ def create_app(test_config=None):
                                counts={row["status"]: row["total"] for row in counts},
                                page=page, total_pages=total_pages, total=total)
 
-    @app.post("/deals/<int:deal_id>/favorite")
+    @app.post("/deals/<string:deal_id>/favorite")
     def toggle_favorite(deal_id):
         consumer = current_consumer_profile()
         if not consumer:
@@ -1545,7 +1574,7 @@ def create_app(test_config=None):
         return render_template("vendors.html", vendors=db.execute(sql, [*params, per_page, offset]).fetchall(),
                                query=query, area=area, page=page, total_pages=total_pages, total=total)
 
-    @app.route("/vendors/<int:business_id>")
+    @app.route("/vendors/<string:business_id>")
     def vendor_detail(business_id):
         db = get_db()
         business = db.execute(
@@ -1596,7 +1625,7 @@ def create_app(test_config=None):
         return render_template("products.html", products=db.execute(sql, [*params, per_page, offset]).fetchall(),
                                query=query, area=area, page=page, total_pages=total_pages, total=total)
 
-    @app.route("/products/<int:product_id>")
+    @app.route("/products/<string:product_id>")
     def product_detail(product_id):
         db = get_db()
         product = db.execute(
@@ -1622,6 +1651,8 @@ def create_app(test_config=None):
     @roles_required("business")
     def business_dashboard():
         business = business_for_user(current_user()["id"])
+        if not business:
+            abort(403)
         db = get_db()
         deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         deal_page, deal_pages, limit, deal_offset = page_window(deal_total, "deal_page")
@@ -1723,12 +1754,13 @@ def create_app(test_config=None):
                         "INSERT INTO products (business_id, name, description, price_kobo, product_url, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                         (business["id"], name, description, price_kobo, product_url or None, timestamp()),
                     )
+                    product_id = cursor.lastrowid
                     for order, image in enumerate(images, start=1):
                         db.execute(
                             """INSERT INTO product_images
                                (product_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at)
                                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                            (cursor.lastrowid, image["file_name"], image["secure_url"], image["public_id"],
+                            (product_id, image["file_name"], image["secure_url"], image["public_id"],
                              image["storage_provider"], order, timestamp()),
                         )
                     db.commit()
@@ -1764,64 +1796,38 @@ def create_app(test_config=None):
             except ValueError: customer_limit = -1
             regular_price_kobo = naira_to_kobo(request.form.get("regular_price", ""))
             discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
-            product_name = request.form.get("product_name", "").strip()
-            product_description = request.form.get("product_description", "").strip()
-            product_url = request.form.get("product_url", "").strip()
-            product_price_kobo = naira_to_kobo(request.form.get("product_price", ""))
-            product_uploads = request.files.getlist("product_images")
-            add_product = bool(product_name or product_description or product_url or request.form.get("product_price", "") or any(upload.filename for upload in product_uploads))
             try: expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
             except ValueError: expires_at = None
-            valid_product = (not add_product or (2 <= len(product_name) <= 120 and 10 <= len(product_description) <= 1200
-                             and product_price_kobo is not None and 0 <= product_price_kobo <= 1_000_000_000
-                             and valid_product_url(product_url)))
-            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow() and valid_product):
-                flash("Check the prices, voucher limits, expiry, and deal details. Any product added must include a name, description, and price.", "danger")
+            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow()):
+                flash("Check the prices, voucher limits, expiry, and deal details. The expiry must be in the future and the discount price must be lower than the regular price.", "danger")
             else:
                 db = get_db()
                 images = []
-                product_images = []
                 try:
                     images = save_deal_images(request.files.getlist("images"), business["id"])
-                    if add_product:
-                        product_images = save_product_images(product_uploads, business["id"])
                     db.execute("BEGIN IMMEDIATE")
                     cursor = db.execute(
                         "INSERT INTO deals (business_id, title, description, category, terms, expires_at, redemption_limit, regular_price_kobo, discount_price_kobo, daily_voucher_limit, max_vouchers_per_customer, is_active, is_approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
                         (business["id"], title, description, category, terms, timestamp(expires_at), limit,
                          regular_price_kobo, discount_price_kobo, daily_limit, customer_limit, timestamp()),
                     )
+                    deal_id = cursor.lastrowid
                     for order, image in enumerate(images, start=1):
                         db.execute(
                             "INSERT INTO deal_images (deal_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (cursor.lastrowid, image["file_name"], image["secure_url"], image["public_id"], image["storage_provider"], order, timestamp()),
+                            (deal_id, image["file_name"], image["secure_url"], image["public_id"], image["storage_provider"], order, timestamp()),
                         )
-                    if add_product:
-                        product_cursor = db.execute(
-                            """INSERT INTO products (business_id, name, description, price_kobo, product_url, created_at)
-                               VALUES (?, ?, ?, ?, ?, ?)""",
-                            (business["id"], product_name, product_description, product_price_kobo, product_url or None, timestamp()),
-                        )
-                        for order, image in enumerate(product_images, start=1):
-                            db.execute(
-                                """INSERT INTO product_images
-                                   (product_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                                (product_cursor.lastrowid, image["file_name"], image["secure_url"], image["public_id"],
-                                 image["storage_provider"], order, timestamp()),
-                            )
                     db.commit()
                 except (OSError, ValueError, MediaStorageError) + DATABASE_ERRORS as error:
                     db.rollback()
                     cleanup_product_images(images)
-                    cleanup_product_images(product_images)
                     flash(str(error) or "Could not save your deal.", "danger")
                 else:
-                    flash("Deal submitted for admin approval. It can go live after approval and wallet funding." + (" Your product was also published." if add_product else ""), "success")
+                    flash("Deal submitted for admin approval. It can go live after approval and wallet funding.", "success")
                     return redirect(url_for("business_dashboard"))
         return render_template("create_deal.html", business=business, categories=category_names(), fee=redemption_fee(business=business))
 
-    @app.route("/business/deals/<int:deal_id>/edit", methods=("GET", "POST"))
+    @app.route("/business/deals/<string:deal_id>/edit", methods=("GET", "POST"))
     @approved_business_required
     def edit_deal(deal_id):
         business = business_for_user(current_user()["id"])
@@ -1972,7 +1978,7 @@ def create_app(test_config=None):
         return redirect(authorization_url)
 
     @app.get("/payments/paystack/callback")
-    @roles_required("business")
+    @approved_business_required
     def paystack_callback():
         reference = request.args.get("reference", "").strip()
         transaction = get_db().execute(
@@ -2132,7 +2138,7 @@ def create_app(test_config=None):
         return render_template("admin_deals.html", deals=deals, status=status, page=page,
                                total_pages=total_pages, total=total, fee=redemption_fee(db))
 
-    @app.post("/admin/deals/<int:deal_id>/approve")
+    @app.post("/admin/deals/<string:deal_id>/approve")
     @roles_required("admin")
     def approve_deal(deal_id):
         db = get_db()
@@ -2270,7 +2276,7 @@ def create_app(test_config=None):
         return render_template("admin_categories.html", categories=categories, page=page,
                                total_pages=total_pages, total=total)
 
-    @app.post("/admin/categories/<int:category_id>/toggle")
+    @app.post("/admin/categories/<string:category_id>/toggle")
     @roles_required("admin")
     def toggle_category(category_id):
         db = get_db()
@@ -2283,7 +2289,7 @@ def create_app(test_config=None):
         flash("Category availability updated.", "success")
         return redirect(url_for("admin_categories"))
 
-    @app.post("/admin/categories/<int:category_id>/delete")
+    @app.post("/admin/categories/<string:category_id>/delete")
     @roles_required("admin")
     def delete_category(category_id):
         db = get_db()
@@ -2312,7 +2318,7 @@ def create_app(test_config=None):
         flash("Category deleted.", "success")
         return redirect(url_for("admin_categories"))
 
-    @app.route("/admin/categories/<int:category_id>/edit", methods=("GET", "POST"))
+    @app.route("/admin/categories/<string:category_id>/edit", methods=("GET", "POST"))
     @roles_required("admin")
     def edit_category(category_id):
         db = get_db()
@@ -2399,10 +2405,10 @@ def create_app(test_config=None):
         return render_template("admin_team.html", admins=admins, page=page,
                                total_pages=total_pages, total=total)
 
-    @app.post("/admin/team/<int:user_id>/toggle")
+    @app.post("/admin/team/<string:user_id>/toggle")
     @roles_required("admin")
     def toggle_admin(user_id):
-        if user_id == current_user()["id"]:
+        if str(user_id) == str(current_user()["id"]):
             flash("You cannot deactivate your own account.", "danger")
             return redirect(url_for("admin_team"))
         db = get_db()
@@ -2436,7 +2442,7 @@ def create_app(test_config=None):
         return render_template("admin_audit_logs.html", logs=logs, page=page,
                                total_pages=total_pages, total=total)
 
-    @app.post("/admin/businesses/<int:business_id>/status")
+    @app.post("/admin/businesses/<string:business_id>/status")
     @roles_required("admin")
     def update_business_status(business_id):
         action = request.form.get("action", "")
@@ -2456,7 +2462,7 @@ def create_app(test_config=None):
         flash("Business access updated.", "success")
         return redirect(url_for("admin_businesses"))
 
-    @app.post("/admin/topups/<int:transaction_id>/approve")
+    @app.post("/admin/topups/<string:transaction_id>/approve")
     @roles_required("admin")
     def approve_topup(transaction_id):
         db = get_db()
@@ -2490,7 +2496,7 @@ def create_app(test_config=None):
         flash("Default redemption fee updated. New redemptions will use this amount.", "success")
         return redirect(url_for("admin_dashboard"))
 
-    @app.post("/admin/businesses/<int:business_id>/adjust-wallet")
+    @app.post("/admin/businesses/<string:business_id>/adjust-wallet")
     @roles_required("admin")
     def adjust_wallet(business_id):
         try:
@@ -2518,7 +2524,7 @@ def create_app(test_config=None):
             db.rollback(); flash(str(error), "danger")
         return redirect(url_for("admin_dashboard"))
 
-    @app.post("/admin/businesses/<int:business_id>/fee")
+    @app.post("/admin/businesses/<string:business_id>/fee")
     @roles_required("admin")
     def update_business_fee(business_id):
         raw_fee = request.form.get("fee", "").strip()

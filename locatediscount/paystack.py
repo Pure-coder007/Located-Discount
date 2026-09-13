@@ -53,7 +53,9 @@ def initialize_transaction(secret_key, api_base, *, email, amount_kobo, referenc
             "reference": reference,
             "callback_url": callback_url,
             "channels": ["card", "bank", "ussd", "bank_transfer"],
-            "metadata": json.dumps({"purpose": "wallet_topup", "business_id": business_id}),
+            # Database UUIDs are native ``uuid.UUID`` objects with psycopg;
+            # external JSON payloads require their canonical string form.
+            "metadata": json.dumps({"purpose": "wallet_topup", "business_id": str(business_id)}),
         },
     )
 

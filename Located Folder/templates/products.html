@@ -2,7 +2,7 @@
 {% block title %}Local products | Locatediscount{% endblock %}
 {% block content %}
 <section class="public-page-hero">
-  <div><p class="app-label">Local catalogue</p><h1 class="mt-2 font-extrabold">Products worth discovering.</h1><p class="mt-2 max-w-2xl text-sm text-slate-500">Explore products from approved local businesses, view complete details, and find offers you can claim in-store.</p>
+  <div><p class="app-label">Local catalogue</p><h1 class="mt-2 font-extrabold">Products near you.</h1>
     <form class="public-search" method="get"><input name="q" value="{{ query }}" placeholder="Search product, vendor or category"><input name="area" value="{{ area }}" placeholder="City or area"><button type="submit"><i class="bi bi-search"></i> Search products</button></form>
   </div><span class="hero-icon"><i class="bi bi-bag"></i></span>
 </section>
@@ -11,7 +11,7 @@
   {% for product in products %}
     <a class="catalog-card" href="{{ url_for('product_detail', product_id=product.id) }}">
       <span class="catalog-media">{% if product.file_name %}<img src="{{ product_image_url(product) }}" alt="{{ product.name }}">{% else %}<i class="bi bi-bag"></i>{% endif %}</span>
-      <span class="catalog-body"><span class="catalog-kicker">{{ product.business_name }} · {{ product.city }}</span><strong class="catalog-title">{{ product.name }}</strong><span class="catalog-copy">{{ product.description|truncate(140) }}</span><span class="catalog-meta"><b class="catalog-price">₦{{ '{:,.2f}'.format(product.price_kobo / 100) }}</b><span class="catalog-link">View details <i class="bi bi-arrow-right"></i></span></span></span>
+      <span class="catalog-body"><span class="catalog-kicker">{{ product.business_name }} · {{ product.city }}</span><strong class="catalog-title">{{ product.name }}</strong><span class="catalog-meta"><b class="catalog-price">₦{{ '{:,.2f}'.format(product.price_kobo / 100) }}</b><span class="catalog-link">View <i class="bi bi-arrow-right"></i></span></span></span>
     </a>
   {% else %}<div class="empty-state"><i class="bi bi-search"></i><h2>No products match yet</h2><p>Try another product, business, category, city, or area.</p></div>{% endfor %}
 </section>
