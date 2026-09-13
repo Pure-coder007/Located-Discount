@@ -255,3 +255,47 @@ body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacit
 @media(max-width:900px){ .deal-showcase { grid-template-columns:minmax(12rem,.7fr) minmax(0,1.3fr); } .deal-showcase-media { min-height:310px; } .deal-showcase-content { grid-template-columns:minmax(0,1fr) 205px; gap:20px; padding:26px; } }
 @media(max-width:680px){ .deal-showcase { grid-template-columns:1fr; border-radius:18px; } .deal-showcase-media { min-height:205px; max-height:245px; } .deal-showcase-content { grid-template-columns:1fr; gap:20px; padding:20px; } .deal-claim-card { display:grid; grid-template-columns:38px minmax(0,1fr); column-gap:12px; padding:16px; } .deal-claim-icon { grid-row:span 2; } .deal-claim-card h2 { margin:0; font-size:16px; } .deal-claim-card p { margin:2px 0 0; } .deal-claim-button,.deal-claim-card form { grid-column:1/-1; } .deal-claim-button { margin-top:15px; } .deal-utility-row { margin-top:7px; } }
 @media(max-width:420px){ .deal-page { padding-bottom:14px; } .deal-back { font-size:11px; } .deal-showcase { margin-top:10px; } .deal-showcase-media { min-height:170px; } .deal-category { top:11px; left:11px; padding:6px 8px; font-size:9px; } .deal-showcase-content { padding:16px; } .deal-main-copy h1 { font-size:1.45rem!important; } .deal-description { margin-top:11px; font-size:12px!important; } .deal-price { margin-top:14px; } .deal-price strong { font-size:21px; } .deal-vendor { margin-top:19px; padding-top:14px; } .deal-utility-row > a,.deal-utility-row summary { font-size:10px; } }
+
+/* One navigation system across the home page and all public pages. */
+.public-nav a,.refreshed-home-nav .site-nav a { font-family:Poppins,sans-serif!important; font-size:13px!important; font-weight:700!important; }
+.nav-menu-toggle,.portal-menu-toggle { border:2px solid #294d98!important; background:#294d98!important; color:#fff!important; box-shadow:0 7px 16px rgba(23,55,116,.24)!important; }
+.nav-menu-toggle i,.portal-menu-toggle i { display:block!important; color:#fff!important; font-size:25px!important; line-height:1!important; }
+.nav-menu-toggle:hover,.portal-menu-toggle:hover { background:#173774!important; border-color:#173774!important; }
+.vendor-deal-media { background:#edf3ff; }
+.vendor-deal-media img { width:100%; height:100%; object-fit:cover; }
+.catalog-media.vendor-deal-media { height:185px; }
+@media(max-width:900px){ .catalog-media.vendor-deal-media { height:165px; } }
+@media(max-width:600px){ .catalog-media.vendor-deal-media { height:150px; } }
+@media(max-width:420px){ .catalog-media.vendor-deal-media { height:130px; } }
+
+/* Voucher pass: clear status, QR, amount, and only the details customers need. */
+.voucher-page { width:min(100%,31rem); margin:0 auto; padding:4px 0 24px; }
+.voucher-back { display:inline-flex; align-items:center; gap:7px; color:#64748b; font-size:12px; font-weight:800; text-decoration:none; }
+.voucher-back:hover { color:#294d98; }
+.voucher-card { overflow:hidden; margin-top:15px; border:1px solid #d5e2fb; border-radius:23px; background:#fff; box-shadow:0 18px 45px rgba(23,55,116,.11); }
+.voucher-header { position:relative; overflow:hidden; padding:26px 27px 30px; background:#173774; color:#fff; }
+.voucher-header:after { position:absolute; right:-33px; bottom:-48px; width:140px; height:140px; border:25px solid rgba(220,232,255,.15); border-radius:50%; content:""; }
+.voucher-status { position:relative; z-index:1; display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:6px 9px; background:rgba(220,232,255,.16); color:#dce8ff; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.voucher-header p { position:relative; z-index:1; margin:17px 0 0; color:rgba(255,255,255,.68); font-size:11px; font-weight:600; }
+.voucher-header h1 { position:relative; z-index:1; margin:6px 0 0; max-width:380px; font-size:25px; line-height:1.18; letter-spacing:-.045em; }
+.voucher-body { padding:28px; text-align:center; }
+.voucher-qr { display:inline-grid; place-items:center; padding:12px; border:1px solid #d5e2fb; border-radius:16px; background:#fff; box-shadow:0 9px 22px rgba(23,55,116,.09); }
+.voucher-qr svg { width:166px; height:166px; }
+.voucher-code { margin:19px 0 0; color:#173774; font-family:"Roboto Mono",monospace; font-size:18px; font-weight:700; letter-spacing:.1em; }
+.voucher-instruction { margin:8px 0 0; color:#64748b; font-size:11px; }
+.voucher-total { display:grid; gap:3px; margin-top:23px; padding:16px; border-radius:15px; background:#edf3ff; color:#173774; }
+.voucher-total span { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.voucher-total strong { font-size:25px; letter-spacing:-.04em; }
+.voucher-total small { color:#64748b; font-size:10px; font-weight:700; }
+.voucher-expiry { display:flex; justify-content:center; align-items:center; gap:6px; margin:15px 0 0; color:#64748b; font-size:10px; font-weight:700; }
+.voucher-expiry i { color:#294d98; }
+.voucher-result-icon { display:grid; width:74px; height:74px; place-items:center; margin:2px auto 18px; border-radius:50%; background:#edf3ff; color:#294d98; font-size:32px; }
+.voucher-redeemed .voucher-result-icon { background:#dcfce7; color:#15803d; }
+.voucher-body h2 { margin:0; color:#173774; font-size:22px; letter-spacing:-.04em; }
+.voucher-result-copy { margin:9px auto 0; max-width:280px; color:#64748b; font-size:12px; line-height:1.6; }
+.voucher-footer { padding:0 28px 24px; }
+.voucher-footer details { border-top:1px solid #e7edf9; padding-top:16px; }
+.voucher-footer summary { display:flex; align-items:center; gap:7px; color:#294d98; font-size:11px; font-weight:800; cursor:pointer; }
+.voucher-footer details p { margin:10px 0 0; color:#64748b; font-size:11px; line-height:1.6; }
+@media(max-width:900px){ .public-nav a,.refreshed-home-nav .site-nav a { font-size:13px!important; } .nav-menu-toggle,.portal-menu-toggle { width:46px!important; height:46px!important; } }
+@media(max-width:420px){ .nav-menu-toggle,.portal-menu-toggle { width:42px!important; height:42px!important; } .nav-menu-toggle i,.portal-menu-toggle i { font-size:23px!important; } .voucher-card { margin-top:10px; border-radius:18px; } .voucher-header { padding:21px 20px 24px; } .voucher-header h1 { font-size:21px!important; } .voucher-body { padding:22px 18px; } .voucher-qr { padding:10px; } .voucher-qr svg { width:142px; height:142px; } .voucher-code { font-size:15px; } .voucher-footer { padding:0 18px 19px; } }

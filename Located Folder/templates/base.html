@@ -26,7 +26,7 @@
   <header class="public-header">
     <div class="public-nav-shell">
       <a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a>
-      <button class="nav-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false"><span class="visually-hidden">Open navigation</span><i class="bi bi-list" aria-hidden="true"></i></button>
+      <button class="nav-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false"><i class="bi bi-list" aria-hidden="true"></i></button>
       <nav class="public-nav" id="public-main-nav" aria-label="Main navigation">
         <a class="{% if request.endpoint in ('home', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('home') }}"><i class="bi bi-ticket-perforated"></i> Deals</a>
         <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>

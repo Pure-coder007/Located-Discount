@@ -1,56 +1,345 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Locatediscount | Explore local deals</title>
-  <link rel="icon" type="image/png" sizes="any" href="{{ url_for('static', filename='img/favicon.png') }}">
-  <meta name="description" content="Explore local business deals, claim a one-time code, and redeem in-store.">
-  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/homepage-video.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/homepage-scale.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/homepage-products.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/homepage-nav.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet">
-  <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='js/location-nearby.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='js/home-search-suggestions.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='js/mobile-nav.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='js/deal-directions.js') }}" defer></script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Locatediscount | Explore local deals</title>
+    <link rel="icon" type="image/png" sizes="any" href="{{ url_for('static', filename='img/favicon.png') }}" />
+    <meta name="description" content="Explore local business deals, claim a one-time code, and redeem in-store." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/homepage-video.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/homepage-scale.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/homepage-products.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/homepage-nav.css') }}" rel="stylesheet" />
+    <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet" />
+    <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/location-nearby.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/home-search-suggestions.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/mobile-nav.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/deal-directions.js') }}" defer></script>
 </head>
+
 <body>
-  <div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page">
-    <div class="page-loader-card">
-      <img class="page-loader-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="" aria-hidden="true">
+    <div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page">
+        <div class="page-loader-card">
+            <img class="page-loader-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="" aria-hidden="true" />
+        </div>
     </div>
-  </div>
-  <header class="site-header refreshed-home-nav"><div class="nav-shell"><a class="site-logo" href="{{ url_for('home') }}"><img class="home-logo-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a><button class="nav-menu-toggle home-menu-toggle" type="button" aria-controls="home-main-nav" aria-expanded="false"><span class="visually-hidden">Open navigation</span><i class="bi bi-list" aria-hidden="true"></i></button><nav class="site-nav" id="home-main-nav"><a class="active" href="{{ url_for('home') }}"><i class="bi bi-ticket-perforated"></i> Deals</a><a href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a><a href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>{% if current_user %}<a class="home-nav-cta" href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}">Dashboard <i class="bi bi-arrow-up-right"></i></a>{% else %}<a href="{{ url_for('login') }}">Business sign in</a><a class="home-nav-cta" href="{{ url_for('register') }}">List a business <i class="bi bi-arrow-up-right"></i></a>{% endif %}</nav></div></header>
-  <main>
-    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="home-flash home-flash-{{ category }}"><i class="bi {% if category == 'danger' %}bi-exclamation-octagon{% elif category == 'success' %}bi-check-circle{% elif category == 'warning' %}bi-exclamation-triangle{% else %}bi-info-circle{% endif %}"></i>{{ message }}</div>{% endfor %}{% endwith %}
-    <section class="hero"><div class="hero-overlay"></div><div class="hero-content"><p class="hero-kicker"><i class="bi bi-geo-alt-fill"></i> {{ area or 'Finding deals near you' }}</p><h1>Deals Near You</h1><p class="hero-copy">Vendor offers ready to claim near your location.</p><form class="hero-search" method="get" action="{{ url_for('home') }}" data-home-search><div><i class="bi bi-search"></i><input id="home-search-query" name="q" value="{{ query }}" placeholder="Search deals, vendors, or categories..." autocomplete="off"><div id="home-search-suggestions" class="home-search-suggestions" hidden></div></div><div><i class="bi bi-geo-alt"></i><input id="home-search-area" name="area" value="{{ area }}" placeholder="City or area"></div><div><i class="bi bi-grid"></i><select id="home-search-category" name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select></div><input type="hidden" name="sort" value="{{ selected_sort }}"><button type="submit">Search <i class="bi bi-arrow-right"></i></button></form></div></section>
-
-    <section class="section popular"><div class="section-heading"><div><p class="eyebrow">DEALS NEAR YOU</p><h2>{% if area %}Closest deals around {{ area }}{% else %}Nearby deals worth claiming today{% endif %}</h2></div><div class="flex gap-3"></div></div><div class="deal-list">{% if deals %}{% for deal in deals %}<article class="deal-row"><a href="{{ url_for('deal_detail', deal_id=deal.id) }}"><img src="{{ url_for('static', filename='img/' ~ deal_images[loop.index0 % 6]) }}" alt="{{ deal.business_name }}"></a><div class="deal-body"><span>{{ deal.category }}</span><h3><a href="{{ url_for('deal_detail', deal_id=deal.id) }}">{{ deal.title }}</a></h3><a class="deal-address" href="https://www.google.com/maps/dir/?api=1&amp;destination={{ (deal.business_name ~ ' ' ~ deal.address ~ ' ' ~ deal.city)|urlencode }}" data-directions data-destination="{{ deal.business_name }}, {{ deal.address }}, {{ deal.city }}"><i class="bi bi-geo-alt-fill"></i><span class="deal-address-text">{{ deal.address }}, {{ deal.city }}</span><span class="deal-address-action">Directions</span></a></div><div class="deal-action"><a href="{{ url_for('deal_detail', deal_id=deal.id) }}">View deal</a></div></article>{% endfor %}{% else %}<article class="deal-row"><img src="{{ url_for('static', filename='img/deals/local-meal.jpg') }}" alt="Food offer"><div class="deal-body"><span>No offers matched</span><h3><a href="{{ url_for('home', q=query) }}">Browse all current deals</a></h3><p>Try another nearby city or area.</p></div></article>{% endif %}</div>{% from 'templates/_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='deals') }}</section>
-    <section class="section home-categories" aria-label="Nearby deal categories">
-      <div class="section-heading"><div><p class="eyebrow">BROWSE BY CATEGORY</p><h2>{% if area %}Popular around {{ area }}{% else %}Explore deals near you{% endif %}</h2></div><span class="category-location"><i class="bi bi-geo-alt-fill"></i> {{ area or 'Your location' }}</span></div>
-      <div class="category-grid">
-        {% for category in category_tiles %}
-        <a class="category-card" href="{{ url_for('home', area=area, category=category.name) }}">
-          {% if category.image_file_name or category.image_secure_url %}<img src="{{ category_image_url(category) }}" alt="{{ category.name }}">{% else %}<span class="category-card-fallback"><i class="bi bi-grid-3x3-gap-fill"></i></span>{% endif %}
-          <span class="category-card-overlay"><small>Explore local savings</small><strong>{{ category.name }}</strong><i class="bi bi-arrow-up-right"></i></span>
-          <span class="category-card-meta"><span><i class="bi bi-geo-alt-fill"></i> {% if area %}{{ area }}{% else %}Nearby businesses{% endif %}</span><span class="category-card-stars" aria-label="Popular category"><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i></span><b>{% if area and category.nearby_deal_count %}{{ category.nearby_deal_count }} near you{% else %}{{ category.deal_count }} live deal{% if category.deal_count != 1 %}s{% endif %}{% endif %}</b></span>
-        </a>
-        {% else %}
-        <div class="category-empty"><i class="bi bi-geo-alt"></i><strong>No categories with live deals{% if area %} around {{ area }}{% endif %} yet.</strong><p>Try another nearby city or check back shortly.</p></div>
-        {% endfor %}
+    <header class="site-header refreshed-home-nav">
+        <div class="nav-shell">
+            <a class="site-logo" href="{{ url_for('home') }}"><img class="home-logo-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount" /><span>Locatediscount<small>Discover · Save · Redeem</small></span
+          ></a
+        ><button
+          class="nav-menu-toggle home-menu-toggle"
+          type="button"
+          aria-controls="home-main-nav"
+          aria-expanded="false"
+          aria-label="Menu"
+        >
+          <i class="bi bi-list" aria-hidden="true"></i>
+        </button>
+        <nav class="site-nav" id="home-main-nav">
+          <a class="active" href="{{ url_for('home') }}"
+            ><i class="bi bi-ticket-perforated"></i> Deals</a
+          ><a href="{{ url_for('vendors') }}"
+            ><i class="bi bi-shop"></i> Vendors</a
+          ><a href="{{ url_for('my_codes') }}"
+            ><i class="bi bi-ticket-perforated"></i> My vouchers</a
+          >{% if current_user %}<a
+            class="home-nav-cta"
+            href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}"
+            >Dashboard <i class="bi bi-arrow-up-right"></i></a
+          >{% else %}<a href="{{ url_for('login') }}">Business sign in</a
+          ><a class="home-nav-cta" href="{{ url_for('register') }}"
+            >List a business <i class="bi bi-arrow-up-right"></i></a
+          >{% endif %}
+        </nav>
       </div>
-      {% from 'templates/_pagination.html' import pager with context %}{{ pager(category_page, category_pages, category_total, 'category_page', 'nearby categories') }}
-    </section>
+    </header>
+    <main>
+      {% with messages = get_flashed_messages(with_categories=true) %}{% for
+      category, message in messages %}
+      <div class="home-flash home-flash-{{ category }}">
+        <i
+          class="bi {% if category == 'danger' %}bi-exclamation-octagon{% elif category == 'success' %}bi-check-circle{% elif category == 'warning' %}bi-exclamation-triangle{% else %}bi-info-circle{% endif %}"
+        ></i
+        >{{ message }}
+      </div>
+      {% endfor %}{% endwith %}
+      <section class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+          <p class="hero-kicker">
+            <i class="bi bi-geo-alt-fill"></i> {{ area or 'Finding deals near
+            you' }}
+          </p>
+          <h1>Deals Near You</h1>
+          <p class="hero-copy">
+            Vendor offers ready to claim near your location.
+          </p>
+          <form
+            class="hero-search"
+            method="get"
+            action="{{ url_for('home') }}"
+            data-home-search
+          >
+            <div>
+              <i class="bi bi-search"></i
+              ><input
+                id="home-search-query"
+                name="q"
+                value="{{ query }}"
+                placeholder="Search deals, vendors, or categories..."
+                autocomplete="off"
+              />
+              <div
+                id="home-search-suggestions"
+                class="home-search-suggestions"
+                hidden
+              ></div>
+            </div>
+            <div>
+              <i class="bi bi-geo-alt"></i
+              ><input
+                id="home-search-area"
+                name="area"
+                value="{{ area }}"
+                placeholder="City or area"
+              />
+            </div>
+            <div>
+              <i class="bi bi-grid"></i
+              ><select id="home-search-category" name="category">
+                <option value="">All categories</option>
+                {% for category in categories %}
+                <option
+                  value="{{ category }}"
+                  {% if selected_category == category %}selected{% endif %}
+                >
+                  {{ category }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <input
+              type="hidden"
+              name="sort"
+              value="{{ selected_sort }}"
+            /><button type="submit">
+              Search <i class="bi bi-arrow-right"></i>
+            </button>
+          </form>
+        </div>
+      </section>
 
-    <section class="section how"><p class="eyebrow">HOW IT WORKS</p><h2>Simple from discovery to savings.</h2><div class="step-grid"><article><span>01</span><i class="bi bi-compass"></i><h3>Find businesses</h3><p>Search the local deals that fit what you need today.</p></article><article><span>02</span><i class="bi bi-qr-code"></i><h3>Claim your voucher</h3><p>Get a secure one-time voucherwithout signing up.</p></article><article><span>03</span><i class="bi bi-check2-circle"></i><h3>Redeem in person</h3><p>Show the code to the business after receiving your discount.</p></article></div></section>
+      <section class="section popular">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">DEALS NEAR YOU</p>
+            <h2>
+              {% if area %}Closest deals around {{ area }}{% else %}Nearby deals
+              worth claiming today{% endif %}
+            </h2>
+          </div>
+          <div class="flex gap-3"></div>
+        </div>
+        <div class="deal-list">
+          {% if deals %}{% for deal in deals %}
+          <article class="deal-row">
+            <a href="{{ url_for('deal_detail', deal_id=deal.id) }}"
+              ><img
+                src="{{ url_for('static', filename='img/' ~ deal_images[loop.index0 % 6]) }}"
+                alt="{{ deal.business_name }}"
+            /></a>
+            <div class="deal-body">
+              <span>{{ deal.category }}</span>
+                <h3>
+                    <a href="{{ url_for('deal_detail', deal_id=deal.id) }}">{{ deal.title }}</a
+                >
+              </h3>
+              <a
+                class="deal-address"
+                href="https://www.google.com/maps/dir/?api=1&amp;destination={{ (deal.business_name ~ ' ' ~ deal.address ~ ' ' ~ deal.city)|urlencode }}"
+                data-directions
+                data-destination="{{ deal.business_name }}, {{ deal.address }}, {{ deal.city }}"
+                ><i class="bi bi-geo-alt-fill"></i
+                ><span class="deal-address-text"
+                  >{{ deal.address }}, {{ deal.city }}</span
+                ><span class="deal-address-action">Directions</span></a
+              >
+            </div>
+            <div class="deal-action">
+              <a href="{{ url_for('deal_detail', deal_id=deal.id) }}"
+                >View deal</a
+              >
+            </div>
+          </article>
+          {% endfor %}{% else %}
+          <article class="deal-row">
+            <img
+              src="{{ url_for('static', filename='img/deals/local-meal.jpg') }}"
+              alt="Food offer"
+            />
+            <div class="deal-body">
+              <span>No offers matched</span>
+              <h3>
+                <a href="{{ url_for('home', q=query) }}"
+                  >Browse all current deals</a
+                >
+              </h3>
+              <p>Try another nearby city or area.</p>
+            </div>
+          </article>
+          {% endif %}
+        </div>
+        {% from 'templates/_pagination.html' import pager with context %}{{
+        pager(page, total_pages, total, label='deals') }}
+      </section>
+      <section
+        class="section home-categories"
+        aria-label="Nearby deal categories"
+      >
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">BROWSE BY CATEGORY</p>
+            <h2>
+              {% if area %}Popular around {{ area }}{% else %}Explore deals near
+              you{% endif %}
+            </h2>
+          </div>
+          <span class="category-location"
+            ><i class="bi bi-geo-alt-fill"></i> {{ area or 'Your location'
+            }}</span
+          >
+        </div>
+        <div class="category-grid">
+          {% for category in category_tiles %}
+          <a
+            class="category-card"
+            href="{{ url_for('home', area=area, category=category.name) }}"
+          >
+            {% if category.image_file_name or category.image_secure_url %}<img
+              src="{{ category_image_url(category) }}"
+              alt="{{ category.name }}"
+            />{% else %}<span class="category-card-fallback"
+              ><i class="bi bi-grid-3x3-gap-fill"></i></span
+            >{% endif %}
+            <span class="category-card-overlay"
+              ><small>Explore local savings</small
+              ><strong>{{ category.name }}</strong
+              ><i class="bi bi-arrow-up-right"></i
+            ></span>
+            <span class="category-card-meta"
+              ><span
+                ><i class="bi bi-geo-alt-fill"></i> {% if area %}{{ area }}{%
+                else %}Nearby businesses{% endif %}</span
+              ><span class="category-card-stars" aria-label="Popular category"
+                ><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i
+                ><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i
+                ><i class="bi bi-star-fill"></i></span
+              ><b
+                >{% if area and category.nearby_deal_count %}{{
+                category.nearby_deal_count }} near you{% else %}{{
+                category.deal_count }} live deal{% if category.deal_count != 1
+                %}s{% endif %}{% endif %}</b
+              ></span
+            >
+          </a> {% else %}
+                    <div class="category-empty">
+                        <i class="bi bi-geo-alt"></i
+            ><strong
+              >No categories with live deals{% if area %} around {{ area }}{%
+              endif %} yet.</strong
+            >
+            <p>Try another nearby city or check back shortly.</p>
+          </div>
+          {% endfor %}
+        </div>
+        {% from 'templates/_pagination.html' import pager with context %}{{
+        pager(category_page, category_pages, category_total, 'category_page',
+        'nearby categories') }}
+      </section>
 
-    <section class="business-cta"><div><p>GROW WITH LOCATEDISCOUNT</p><h2>Get Business Exposure</h2><span>Put your offers in front of nearby customers and pay only when a code is redeemed.</span></div><a href="{{ url_for('register') }}">List your business <i class="bi bi-arrow-right"></i></a></section>
-  </main>
-  <footer><div class="footer-grid"><div><a class="site-logo footer-logo" href="{{ url_for('home') }}"><img src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover. Save. Redeem.</small></span></a><p>Discover local business deals in your city, claim a unique code, and redeem it in-store.</p></div><div><h3>Explore</h3><a href="{{ url_for('home') }}">Browse deals</a><a href="{{ url_for('home', category='Food & Drink') }}">Food &amp; Drink</a><a href="{{ url_for('home', category='Shopping') }}">Shopping</a></div><div><h3>Business</h3><a href="{{ url_for('register') }}">List your business</a><a href="{{ url_for('login') }}">Business sign in</a></div><div><h3>Policies</h3><a href="{{ url_for('policy_page', policy_key='terms') }}">Terms of service</a><a href="{{ url_for('policy_page', policy_key='privacy') }}">Privacy policy</a><a href="{{ url_for('policy_page', policy_key='faq') }}">FAQ</a></div></div><div class="footer-bottom">© {{ now().year if now is defined else '2026' }} Locatediscount. All rights reserved.</div></footer>
-</body>
+      <section class="section how">
+        <p class="eyebrow">HOW IT WORKS</p>
+        <h2>Simple from discovery to savings.</h2>
+        <div class="step-grid">
+          <article>
+            <span>01</span><i class="bi bi-compass"></i>
+                        <h3>Find businesses</h3>
+                        <p>Search the local deals that fit what you need today.</p>
+                        </article>
+                        <article>
+                            <span>02</span><i class="bi bi-qr-code"></i>
+                            <h3>Claim your voucher</h3>
+                            <p>Get a secure one-time voucherwithout signing up.</p>
+                        </article>
+                        <article>
+                            <span>03</span><i class="bi bi-check2-circle"></i>
+                            <h3>Redeem in person</h3>
+                            <p>Show the code to the business after receiving your discount.</p>
+                        </article>
+                    </div>
+                    </section>
+
+                    <section class="business-cta">
+                        <div>
+                            <p>GROW WITH LOCATEDISCOUNT</p>
+                            <h2>Get Business Exposure</h2>
+                            <span>Put your offers in front of nearby customers and pay only when a
+            code is redeemed.</span
+          >
+        </div>
+        <a href="{{ url_for('register') }}"
+          >List your business <i class="bi bi-arrow-right"></i
+        ></a>
+      </section>
+    </main>
+    <footer>
+      <div class="footer-grid">
+        <div>
+          <a class="site-logo footer-logo" href="{{ url_for('home') }}"
+            ><img
+              src="{{ url_for('static', filename='img/discount_logo.png') }}"
+              alt="Locatediscount"
+            /><span
+              >Locatediscount<small>Discover. Save. Redeem.</small></span
+            ></a
+          >
+          <p>
+            Discover local business deals in your city, claim a unique code, and
+            redeem it in-store.
+          </p>
+        </div>
+        <div>
+          <h3>Explore</h3>
+          <a href="{{ url_for('home') }}">Browse deals</a
+          ><a href="{{ url_for('home', category='Food & Drink') }}"
+            >Food &amp; Drink</a
+          ><a href="{{ url_for('home', category='Shopping') }}">Shopping</a>
+        </div>
+        <div>
+          <h3>Business</h3>
+          <a href="{{ url_for('register') }}">List your business</a
+          ><a href="{{ url_for('login') }}">Business sign in</a>
+        </div>
+        <div>
+          <h3>Policies</h3>
+          <a href="{{ url_for('policy_page', policy_key='terms') }}"
+            >Terms of service</a
+          ><a href="{{ url_for('policy_page', policy_key='privacy') }}"
+            >Privacy policy</a
+          ><a href="{{ url_for('policy_page', policy_key='faq') }}">FAQ</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        © {{ now().year if now is defined else '2026' }} Locatediscount. All
+        rights reserved.
+      </div>
+    </footer>
+  </body>
 </html>

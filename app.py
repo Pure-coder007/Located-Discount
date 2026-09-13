@@ -1554,12 +1554,29 @@ def create_app(test_config=None):
     def vendors():
         query = request.args.get("q", "").strip()
         area = request.args.get("area", "").strip()
-        sql = """SELECT businesses.*, COUNT(DISTINCT deals.id) live_deal_count
+        sql = """SELECT businesses.*, COUNT(DISTINCT deals.id) live_deal_count,
+                         (SELECT image.file_name
+                            FROM deal_images image JOIN deals featured_deal ON featured_deal.id = image.deal_id
+                           WHERE featured_deal.business_id = businesses.id
+                             AND featured_deal.is_active = 1 AND featured_deal.is_approved = 1
+                             AND featured_deal.expires_at > ?
+                           ORDER BY featured_deal.created_at DESC, image.sort_order ASC LIMIT 1) deal_image_file_name,
+                         (SELECT image.secure_url
+                            FROM deal_images image JOIN deals featured_deal ON featured_deal.id = image.deal_id
+                           WHERE featured_deal.business_id = businesses.id
+                             AND featured_deal.is_active = 1 AND featured_deal.is_approved = 1
+                             AND featured_deal.expires_at > ?
+                           ORDER BY featured_deal.created_at DESC, image.sort_order ASC LIMIT 1) deal_image_secure_url,
+                         (SELECT categories.image_file_name FROM categories
+                           WHERE LOWER(categories.name) = LOWER(businesses.category) LIMIT 1) category_image_file_name,
+                         (SELECT categories.image_secure_url FROM categories
+                           WHERE LOWER(categories.name) = LOWER(businesses.category) LIMIT 1) category_image_secure_url
                   FROM businesses
                   LEFT JOIN deals ON deals.business_id = businesses.id
                      AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                   WHERE businesses.is_approved = 1 AND businesses.is_blocked = 0"""
-        params = [timestamp()]
+        now = timestamp()
+        params = [now, now, now]
         if query:
             sql += " AND (businesses.name LIKE ? OR businesses.category LIKE ? OR businesses.city LIKE ?)"
             params.extend([f"%{query}%"] * 3)
@@ -1569,7 +1586,7 @@ def create_app(test_config=None):
         grouped_sql = sql + " GROUP BY businesses.id"
         db = get_db()
         total = db.execute(f"SELECT COUNT(*) total FROM ({grouped_sql}) filtered_vendors", params).fetchone()["total"]
-        page, total_pages, per_page, offset = page_window(total)
+        page, total_pages, per_page, offset = page_window(total, per_page=6)
         sql = grouped_sql + " ORDER BY businesses.created_at DESC LIMIT ? OFFSET ?"
         return render_template("vendors.html", vendors=db.execute(sql, [*params, per_page, offset]).fetchall(),
                                query=query, area=area, page=page, total_pages=total_pages, total=total)

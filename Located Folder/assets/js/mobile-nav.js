@@ -2,8 +2,6 @@
   const closeMenu = (header, toggle) => {
     header.classList.remove("nav-is-open");
     toggle.setAttribute("aria-expanded", "false");
-    const label = toggle.querySelector(".visually-hidden");
-    if (label) label.textContent = "Open navigation";
   };
 
   document.querySelectorAll(".nav-menu-toggle").forEach((toggle) => {
@@ -14,8 +12,6 @@
     toggle.addEventListener("click", () => {
       const isOpen = header.classList.toggle("nav-is-open");
       toggle.setAttribute("aria-expanded", String(isOpen));
-      const label = toggle.querySelector(".visually-hidden");
-      if (label) label.textContent = isOpen ? "Close navigation" : "Open navigation";
     });
 
     nav.querySelectorAll("a").forEach((link) => link.addEventListener("click", () => closeMenu(header, toggle)));
@@ -32,15 +28,11 @@
     const closePortalMenu = () => {
       sidebar.classList.remove("portal-nav-is-open");
       toggle.setAttribute("aria-expanded", "false");
-      const label = toggle.querySelector(".visually-hidden");
-      if (label) label.textContent = "Open dashboard navigation";
     };
 
     toggle.addEventListener("click", () => {
       const isOpen = sidebar.classList.toggle("portal-nav-is-open");
       toggle.setAttribute("aria-expanded", String(isOpen));
-      const label = toggle.querySelector(".visually-hidden");
-      if (label) label.textContent = isOpen ? "Close dashboard navigation" : "Open dashboard navigation";
     });
     nav.querySelectorAll("a").forEach((link) => link.addEventListener("click", closePortalMenu));
     window.addEventListener("resize", () => {

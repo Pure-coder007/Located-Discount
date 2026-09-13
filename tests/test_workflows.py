@@ -148,7 +148,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
             {"name": "Test Customer", "phone": "+2348099999999", "area": "Ikeja"},
             follow_redirects=True,
         )
-        self.assertIn(b"Your one-time voucher", response.data)
+        self.assertIn(b"Show this code to the business", response.data)
         self.assertIn(b"<svg", response.data)
 
         response = self.client.get("/my-codes")
