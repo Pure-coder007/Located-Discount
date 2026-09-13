@@ -108,6 +108,9 @@ def create_app(test_config=None):
         CLOUDINARY_API_KEY=os.environ.get("CLOUDINARY_API_KEY", ""),
         CLOUDINARY_API_SECRET=(os.environ.get("CLOUDINARY_API_SECRET") or os.environ.get("CLOUDINARY_SECRET_KEY", "")),
         MEDIA_STORAGE="cloudinary",
+        # Demo catalogue records must never be created by an ordinary deploy.
+        # A developer has to opt in locally before the seed-demo command works.
+        ALLOW_DEMO_SEED=os.environ.get("ALLOW_DEMO_SEED") == "1",
     )
     if test_config:
         app.config.update(test_config)
@@ -158,21 +161,7 @@ def create_app(test_config=None):
                    VALUES (?, ?, ?) ON CONFLICT (setting_key) DO NOTHING""",
                 ("redemption_fee", DEFAULT_REDEMPTION_FEE, timestamp()),
             )
-            if not db.execute("SELECT 1 FROM platform_settings WHERE setting_key = 'category_defaults_seeded'").fetchone():
-                has_categories = db.execute("SELECT 1 FROM categories LIMIT 1").fetchone()
-                was_deleted = db.execute("SELECT 1 FROM admin_audit_logs WHERE action = 'delete_category' LIMIT 1").fetchone()
-                if not has_categories and not was_deleted:
-                    for category_name in CATEGORIES:
-                        db.execute(
-                            """INSERT INTO categories (name, created_at) VALUES (?, ?)
-                               ON CONFLICT DO NOTHING""",
-                            (category_name, timestamp()),
-                        )
-                db.execute(
-                    """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
-                       VALUES ('category_defaults_seeded', 1, ?) ON CONFLICT (setting_key) DO NOTHING""",
-                    (timestamp(),),
-                )
+            initialize_default_categories(db, postgres=True)
             return
         db.executescript(
             f"""
@@ -416,15 +405,44 @@ def create_app(test_config=None):
         db.execute("CREATE INDEX IF NOT EXISTS codes_device_status_idx ON codes(device_id, status, created_at)")
         db.execute("CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order)")
         db.execute("UPDATE platform_settings SET integer_value = ? WHERE setting_key = 'redemption_fee' AND integer_value = ?", (DEFAULT_REDEMPTION_FEE, 150))
-        if not db.execute("SELECT 1 FROM platform_settings WHERE setting_key = 'category_defaults_seeded'").fetchone():
-            has_categories = db.execute("SELECT 1 FROM categories LIMIT 1").fetchone()
-            was_deleted = db.execute("SELECT 1 FROM admin_audit_logs WHERE action = 'delete_category' LIMIT 1").fetchone()
-            if not has_categories and not was_deleted:
-                for category_name in CATEGORIES:
+        initialize_default_categories(db)
+
+    def initialize_default_categories(db, postgres=False):
+        """Seed starter categories once for a brand-new, unused database.
+
+        The sentinel is deliberately written even when a database already has
+        data.  That makes an administrator's later category deletion permanent
+        across application restarts and deployments.
+        """
+        if db.execute(
+            "SELECT 1 FROM platform_settings WHERE setting_key = 'category_defaults_seeded'"
+        ).fetchone():
+            return
+
+        has_categories = db.execute("SELECT 1 FROM categories LIMIT 1").fetchone()
+        has_platform_data = db.execute(
+            "SELECT 1 FROM users UNION ALL SELECT 1 FROM businesses LIMIT 1"
+        ).fetchone()
+        if not has_categories and not has_platform_data:
+            for category_name in CATEGORIES:
+                if postgres:
+                    db.execute(
+                        "INSERT INTO categories (name, created_at) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                        (category_name, timestamp()),
+                    )
+                else:
                     db.execute(
                         "INSERT OR IGNORE INTO categories (name, created_at) VALUES (?, ?)",
                         (category_name, timestamp()),
                     )
+
+        if postgres:
+            db.execute(
+                """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
+                   VALUES ('category_defaults_seeded', 1, ?) ON CONFLICT (setting_key) DO NOTHING""",
+                (timestamp(),),
+            )
+        else:
             db.execute(
                 "INSERT OR IGNORE INTO platform_settings (setting_key, integer_value, updated_at) VALUES ('category_defaults_seeded', 1, ?)",
                 (timestamp(),),
@@ -468,6 +486,10 @@ def create_app(test_config=None):
     @app.cli.command("seed-demo")
     def seed_demo():
         """Create an idempotent public catalogue for local testing."""
+        if not app.config["ALLOW_DEMO_SEED"]:
+            raise click.UsageError(
+                "Demo seeding is disabled. Set ALLOW_DEMO_SEED=1 in a local development environment to use it."
+            )
         vendors = (
             ("Lagos Lunch Club", "Food & Drink", "12 Allen Avenue", "Ikeja", "Jollof lunch bowl", "Grilled chicken combo", "Smoothie pack", "Peppered fish platter", "Weekend brunch box"),
             ("Glow House Studio", "Beauty", "18 Admiralty Way", "Lekki", "Signature facial", "Protective style session", "Manicure and pedicure", "Bridal beauty package", "Natural hair treatment"),
@@ -1084,43 +1106,23 @@ def create_app(test_config=None):
             "expiring": "deals.expires_at ASC",
             "popular": "deals.redemption_count DESC, deals.created_at DESC",
         }.get(sort, "deals.created_at DESC")
+        proximity_params = []
+        if area:
+            # The browser supplies the user's current city/area. Within that
+            # result set, favour an exact city match before a street/area match.
+            order_by = """CASE
+                            WHEN LOWER(businesses.city) = LOWER(?) THEN 0
+                            WHEN LOWER(businesses.address) LIKE LOWER(?) THEN 1
+                            ELSE 2
+                          END, """ + order_by
+            proximity_params = [area, f"%{area}%"]
         db = get_db()
         count_sql = f"SELECT COUNT(*) total FROM ({sql}) filtered_deals"
         total = db.execute(count_sql, params).fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
         sql += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
-        deals = db.execute(sql, [*params, per_page, offset]).fetchall()
-        product_sql = """SELECT products.*, businesses.name business_name, businesses.city,
-                                businesses.category, cover.file_name, cover.secure_url,
-                                (SELECT COUNT(*) FROM deals product_deals
-                                  WHERE product_deals.business_id = products.business_id
-                                    AND product_deals.is_active = 1 AND product_deals.expires_at > ?) live_deal_count
-                         FROM products JOIN businesses ON businesses.id = products.business_id
-                         LEFT JOIN product_images cover ON cover.id = (
-                           SELECT image.id FROM product_images image
-                           WHERE image.product_id = products.id ORDER BY image.sort_order LIMIT 1
-                         )
-                         WHERE products.is_active = 1
-                           AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
-        product_params = [timestamp()]
-        if category in categories:
-            product_sql += " AND businesses.category = ?"
-            product_params.append(category)
-        if query:
-            product_sql += """ AND (products.name LIKE ? OR products.description LIKE ?
-                                  OR businesses.name LIKE ? OR businesses.category LIKE ?
-                                  OR businesses.city LIKE ?)"""
-            product_params.extend([f"%{query}%"] * 5)
-        if area:
-            product_sql += " AND (businesses.city LIKE ? OR businesses.address LIKE ?)"
-            product_params.extend([f"%{area}%", f"%{area}%"])
-        product_total = db.execute(
-            f"SELECT COUNT(*) total FROM ({product_sql}) filtered_products", product_params
-        ).fetchone()["total"]
-        homepage_products = db.execute(
-            product_sql + " ORDER BY products.created_at DESC LIMIT 5", product_params
-        ).fetchall()
-        category_sql = """SELECT categories.*, COUNT(businesses.id) AS deal_count"""
+        deals = db.execute(sql, [*params, *proximity_params, per_page, offset]).fetchall()
+        category_sql = """SELECT categories.*, COUNT(DISTINCT deals.id) AS deal_count"""
         category_params = []
         if area:
             category_sql += ", SUM(CASE WHEN businesses.city LIKE ? OR businesses.address LIKE ? THEN 1 ELSE 0 END) AS nearby_deal_count"
@@ -1150,7 +1152,6 @@ def create_app(test_config=None):
             "index.html", deals=deals, categories=categories, query=query, area=area,
             selected_category=category, selected_sort=sort, consumer=current_consumer_profile(),
             page=page, total_pages=total_pages, total=total,
-            homepage_products=homepage_products, product_total=product_total,
             category_tiles=category_tiles, category_page=category_page, category_pages=category_pages,
             category_total=category_total,
             deal_images=(
@@ -1190,14 +1191,15 @@ def create_app(test_config=None):
         ).fetchall()
         for row in cities:
             add_suggestion(row["city"], "area", row["city"], "City / area")
-        products = db.execute(
-            """SELECT DISTINCT products.name FROM products JOIN businesses ON businesses.id = products.business_id
-               WHERE products.is_active = 1 AND businesses.is_approved = 1 AND businesses.is_blocked = 0
-                 AND products.name LIKE ? ORDER BY LOWER(products.name) LIMIT 4""",
-            (like_query,),
+        deals = db.execute(
+            """SELECT DISTINCT deals.title FROM deals JOIN businesses ON businesses.id = deals.business_id
+               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                 AND businesses.is_approved = 1 AND businesses.is_blocked = 0
+                 AND deals.title LIKE ? ORDER BY LOWER(deals.title) LIMIT 4""",
+            (timestamp(), like_query),
         ).fetchall()
-        for row in products:
-            add_suggestion(row["name"], "search", row["name"], "Product")
+        for row in deals:
+            add_suggestion(row["title"], "search", row["title"], "Deal")
         return jsonify({"suggestions": suggestions})
 
     @app.route("/register", methods=("GET", "POST"))
@@ -1552,12 +1554,10 @@ def create_app(test_config=None):
     def vendors():
         query = request.args.get("q", "").strip()
         area = request.args.get("area", "").strip()
-        sql = """SELECT businesses.*, COUNT(DISTINCT deals.id) live_deal_count,
-                         COUNT(DISTINCT products.id) product_count
+        sql = """SELECT businesses.*, COUNT(DISTINCT deals.id) live_deal_count
                   FROM businesses
                   LEFT JOIN deals ON deals.business_id = businesses.id
-                     AND deals.is_active = 1 AND deals.expires_at > ?
-                  LEFT JOIN products ON products.business_id = businesses.id AND products.is_active = 1
+                     AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                   WHERE businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if query:
@@ -1588,64 +1588,20 @@ def create_app(test_config=None):
             "SELECT * FROM deals WHERE business_id = ? AND is_active = 1 AND expires_at > ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
             (business_id, timestamp(), per_page, deal_offset),
         ).fetchall()
-        product_total = db.execute("SELECT COUNT(*) total FROM products WHERE business_id = ? AND is_active = 1", (business_id,)).fetchone()["total"]
-        product_page, product_pages, per_page, product_offset = page_window(product_total, "product_page")
-        products = db.execute(
-            "SELECT * FROM products WHERE business_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            (business_id, per_page, product_offset),
-        ).fetchall()
-        return render_template("vendor_detail.html", business=business, deals=deals, products=products,
-                               deal_page=deal_page, deal_pages=deal_pages, deal_total=deal_total,
-                               product_page=product_page, product_pages=product_pages, product_total=product_total)
+        return render_template("vendor_detail.html", business=business, deals=deals,
+                               deal_page=deal_page, deal_pages=deal_pages, deal_total=deal_total)
 
     @app.route("/products")
     def products():
+        # Product inventory is private to the vendor workspace. Customers
+        # browse and claim vendor-created deals instead.
         query = request.args.get("q", "").strip()
         area = request.args.get("area", "").strip()
-        sql = """SELECT products.*, businesses.name business_name, businesses.city, businesses.category,
-                         cover.file_name, cover.secure_url
-                  FROM products JOIN businesses ON businesses.id = products.business_id
-                  LEFT JOIN product_images cover ON cover.id = (
-                    SELECT image.id FROM product_images image
-                    WHERE image.product_id = products.id ORDER BY image.sort_order LIMIT 1
-                  )
-                  WHERE products.is_active = 1 AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
-        params = []
-        if query:
-            sql += """ AND (products.name LIKE ? OR products.description LIKE ? OR businesses.name LIKE ?
-                           OR businesses.category LIKE ? OR businesses.city LIKE ?)"""
-            params.extend([f"%{query}%"] * 5)
-        if area:
-            sql += " AND (businesses.city LIKE ? OR businesses.address LIKE ?)"
-            params.extend([f"%{area}%"] * 2)
-        db = get_db()
-        total = db.execute(f"SELECT COUNT(*) total FROM ({sql}) filtered_products", params).fetchone()["total"]
-        page, total_pages, per_page, offset = page_window(total)
-        sql += " ORDER BY products.created_at DESC LIMIT ? OFFSET ?"
-        return render_template("products.html", products=db.execute(sql, [*params, per_page, offset]).fetchall(),
-                               query=query, area=area, page=page, total_pages=total_pages, total=total)
+        return redirect(url_for("home", q=query, area=area))
 
     @app.route("/products/<string:product_id>")
     def product_detail(product_id):
-        db = get_db()
-        product = db.execute(
-            """SELECT products.*, businesses.name business_name, businesses.city, businesses.address
-               FROM products JOIN businesses ON businesses.id = products.business_id
-               WHERE products.id = ? AND products.is_active = 1
-                 AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
-            (product_id,),
-        ).fetchone()
-        if not product:
-            abort(404)
-        images = db.execute(
-            "SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order", (product_id,)
-        ).fetchall()
-        deals = db.execute(
-            """SELECT id, title, terms, expires_at FROM deals
-               WHERE business_id = ? AND is_active = 1 AND expires_at > ? ORDER BY created_at DESC LIMIT 3""",
-            (product["business_id"], timestamp()),
-        ).fetchall()
-        return render_template("product_detail.html", product=product, images=images, deals=deals)
+        return redirect(url_for("home"))
 
     @app.route("/business")
     @roles_required("business")
@@ -2111,6 +2067,70 @@ def create_app(test_config=None):
         return render_template("admin_businesses.html", businesses=businesses, default_fee=redemption_fee(),
                                page=page, total_pages=total_pages, total_businesses=total_businesses,
                                status_counts=status_counts, query=query, status=status)
+
+    @app.post("/admin/businesses/<string:business_id>/delete")
+    @roles_required("admin")
+    def delete_business(business_id):
+        """Remove an unreviewed, unused registration and its owner account.
+
+        Financial or voucher history is intentionally retained: those vendors
+        must be blocked instead, preserving the ledger and audit trail.
+        """
+        db = get_db()
+        business = db.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
+        if not business:
+            abort(404)
+        activity = db.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM deals WHERE business_id = ?) AS deals,
+                 (SELECT COUNT(*) FROM products WHERE business_id = ?) AS products,
+                 (SELECT COUNT(*) FROM codes JOIN deals ON deals.id = codes.deal_id WHERE deals.business_id = ?) AS codes,
+                 (SELECT COUNT(*) FROM wallet_transactions WHERE business_id = ?) AS transactions,
+                 (SELECT COUNT(*) FROM ledger_entries WHERE business_id = ?) AS ledger_entries""",
+            (business_id, business_id, business_id, business_id, business_id),
+        ).fetchone()
+        if any(activity[key] for key in ("deals", "products", "codes", "transactions", "ledger_entries")):
+            flash("This business has marketplace or financial activity and cannot be removed. Block it instead to preserve the audit trail.", "warning")
+            return redirect(url_for("admin_businesses"))
+        db.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
+        db.execute("DELETE FROM users WHERE id = ?", (business["owner_id"],))
+        record_admin_action("delete_business", "business", business_id, business["name"])
+        flash("Unverified business registration removed.", "success")
+        return redirect(url_for("admin_businesses"))
+
+    @app.post("/admin/businesses/<string:business_id>/purge-demo")
+    @roles_required("admin")
+    def purge_demo_business(business_id):
+        """Remove one legacy seed-demo vendor and its disposable catalogue."""
+        db = get_db()
+        business = db.execute(
+            """SELECT businesses.*, users.email AS owner_email
+               FROM businesses JOIN users ON users.id = businesses.owner_id
+               WHERE businesses.id = ?""",
+            (business_id,),
+        ).fetchone()
+        if not business:
+            abort(404)
+        if not business["owner_email"].startswith("demo-vendor-") or not business["owner_email"].endswith("@locatediscount.invalid"):
+            abort(404)
+        activity = db.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM codes JOIN deals ON deals.id = codes.deal_id WHERE deals.business_id = ?) AS codes,
+                 (SELECT COUNT(*) FROM wallet_transactions WHERE business_id = ?) AS transactions,
+                 (SELECT COUNT(*) FROM ledger_entries WHERE business_id = ?) AS ledger_entries""",
+            (business_id, business_id, business_id),
+        ).fetchone()
+        if any(activity[key] for key in ("codes", "transactions", "ledger_entries")):
+            flash("This demo business has transaction history and cannot be purged. Block it to preserve the audit trail.", "warning")
+            return redirect(url_for("admin_businesses"))
+        db.execute("DELETE FROM favorites WHERE deal_id IN (SELECT id FROM deals WHERE business_id = ?)", (business_id,))
+        db.execute("DELETE FROM deals WHERE business_id = ?", (business_id,))
+        db.execute("DELETE FROM products WHERE business_id = ?", (business_id,))
+        db.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
+        db.execute("DELETE FROM users WHERE id = ?", (business["owner_id"],))
+        record_admin_action("purge_demo_business", "business", business_id, business["name"])
+        flash("Legacy demo business and its catalogue removed.", "success")
+        return redirect(url_for("admin_businesses"))
 
     @app.route("/admin/deals")
     @roles_required("admin")

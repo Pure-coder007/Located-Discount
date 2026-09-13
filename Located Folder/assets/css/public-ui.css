@@ -1,23 +1,21 @@
 :root { --ld-ink:#173774; --ld-green:#294d98; --ld-green-dark:#173774; --ld-lemon:#dce8ff; --ld-gold:#6f95de; --ld-cream:#f5f8ff; --ld-line:#d5e2fb; --ld-muted:#64748b; }
 .page-loader { position:fixed; inset:0; z-index:9999; display:grid; place-items:center; background:rgba(247,250,239,.94); opacity:1; transition:opacity .2s ease,visibility .2s ease; }
-.page-loader-card { display:grid; min-width:132px; place-items:center; gap:12px; padding:22px 28px; border:1px solid var(--ld-line); border-radius:20px; background:#fff; box-shadow:0 18px 45px rgba(23,55,45,.14); }
-.page-loader-mark { display:block; width:38px; height:38px; border-radius:12px; object-fit:cover; object-position:center 34%; box-shadow:0 6px 16px rgba(23,55,116,.22); }
-.page-loader-spinner { width:27px; height:27px; border:3px solid #dce8d1; border-top-color:var(--ld-green); border-radius:50%; animation:ld-page-loader-spin .7s linear infinite; }
-.page-loader-copy { color:var(--ld-green); font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.page-loader-card { display:grid; place-items:center; }
+.page-loader-mark { display:block; width:clamp(96px,14vw,150px); height:clamp(96px,14vw,150px); object-fit:contain; background:transparent; animation:ld-favicon-loader 1.1s ease-in-out infinite; }
 body.page-ready .page-loader { visibility:hidden; pointer-events:none; opacity:0; }
 body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacity:1; }
-@keyframes ld-page-loader-spin { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce){.page-loader,.page-loader-spinner{transition:none;animation:none}.page-loader-spinner{border-top-color:#dce8d1}}
+@keyframes ld-favicon-loader { 0%,100% { transform:scale(.94) rotate(-2deg); } 50% { transform:scale(1.04) rotate(2deg); } }
+@media(prefers-reduced-motion:reduce){.page-loader,.page-loader-mark{transition:none;animation:none}}
 .low-wallet-alert { background:#fff1f1; animation:ld-low-wallet-pulse 1.25s ease-in-out infinite; }
 @keyframes ld-low-wallet-pulse { 50% { background:#ffe0e0; box-shadow:inset 4px 0 0 #dc2626; } }
 @media(prefers-reduced-motion:reduce){.low-wallet-alert{animation:none}}
 .public-body { margin:0; background:var(--ld-cream); color:var(--ld-ink); font-family:Poppins,sans-serif; font-size:12px; }
 .public-header { position:sticky; z-index:40; top:0; border-bottom:1px solid var(--ld-line); background:rgba(255,255,255,.96); box-shadow:0 8px 25px rgba(23,55,45,.045); }
-.public-nav-shell { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:28px; width:min(100% - 36px, 1500px); min-height:72px; margin:auto; }
+.public-nav-shell { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:28px; width:min(100% - 36px, 1500px); min-height:108px; margin:auto; }
 .public-brand { display:inline-flex; align-items:center; gap:10px; color:var(--ld-ink); font-size:13px; font-weight:800; letter-spacing:-.02em; text-decoration:none; }
 .public-brand small { display:block; margin-top:3px; color:#839087; font-size:8px; font-weight:600; letter-spacing:.02em; }
-.public-brand-mark { display:block; width:38px; height:38px; flex:none; border-radius:12px; object-fit:cover; object-position:center 34%; box-shadow:0 5px 14px rgba(23,55,116,.18); }
-.portal-brand-logo { width:40px; height:40px; flex:none; border-radius:12px; object-fit:cover; object-position:center 34%; box-shadow:0 5px 14px rgba(23,55,116,.16); }
+.public-brand-mark { display:block; width:68px; height:68px; flex:none; object-fit:contain; background:transparent; box-shadow:none; }
+.portal-brand-logo { width:68px; height:68px; flex:none; object-fit:contain; background:transparent; box-shadow:none; }
 .public-nav { display:flex; justify-content:center; gap:5px; }
 .public-nav a { display:inline-flex; align-items:center; gap:7px; padding:9px 12px; border-radius:10px; color:#718078; font-size:13px; font-weight:700; text-decoration:none; transition:.18s ease; }
 .public-nav a:hover { background:#f0f5e9; color:var(--ld-green); }
@@ -112,7 +110,7 @@ body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacit
 .deal-map-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:fit-content; margin-top:20px; border-radius:10px; padding:11px 14px; background:#294d98; color:#fff; font-size:11px; font-weight:800; text-decoration:none; }
 .deal-map-button:hover { background:#173774; color:#fff; }
 .deal-map-frame { width:100%; min-height:285px; border:0; background:#dce8ff; }
-@media(max-width:900px){.public-nav-shell{position:relative;display:flex;min-height:68px;padding:10px 0}.public-nav-shell .nav-menu-toggle{display:grid;width:42px;height:42px;place-items:center;margin-left:auto;border:1px solid var(--ld-line);border-radius:11px;background:#fff;color:var(--ld-ink);font-size:23px;cursor:pointer}.public-nav{display:none;position:absolute;z-index:45;top:calc(100% + 7px);right:0;left:0;flex-direction:column;gap:3px;padding:10px;border:1px solid var(--ld-line);border-radius:14px;background:#fff;box-shadow:0 16px 35px rgba(23,55,116,.16)}.public-header.nav-is-open .public-nav{display:flex}.public-nav a{justify-content:flex-start;padding:12px;font-size:12px}.public-actions{margin-left:8px}.public-actions .public-cta{font-size:9px}.public-header.nav-is-open .nav-menu-toggle i:before{content:"\f62a"}.deal-map-panel{grid-template-columns:1fr}.deal-map-copy{padding:26px}.deal-map-frame{min-height:250px}.deal-location-link{font-size:13px}}
+@media(max-width:900px){.public-nav-shell{position:relative;display:flex;min-height:92px;padding:10px 0}.public-nav-shell .nav-menu-toggle{display:grid;width:46px;height:46px;place-items:center;margin-left:auto;border:1px solid var(--ld-line);border-radius:13px;background:#fff;color:var(--ld-ink);font-size:25px;cursor:pointer}.public-nav{display:none;position:absolute;z-index:45;top:calc(100% + 7px);right:0;left:0;flex-direction:column;gap:3px;padding:10px;border:1px solid var(--ld-line);border-radius:14px;background:#fff;box-shadow:0 16px 35px rgba(23,55,116,.16)}.public-header.nav-is-open .public-nav{display:flex}.public-nav a{justify-content:flex-start;padding:14px;font-size:14px}.public-actions{margin-left:8px}.public-actions .public-cta{font-size:10px}.public-header.nav-is-open .nav-menu-toggle i:before{content:"\f62a"}.deal-map-panel{grid-template-columns:1fr}.deal-map-copy{padding:26px}.deal-map-frame{min-height:250px}.deal-location-link{font-size:13px}}
 @media(min-width:901px){.public-main .text-sm{font-size:.75rem}.public-main .text-base{font-size:.85rem}.public-main h1{font-size:clamp(1.5rem,2.4vw,2.2rem)!important}.public-main h2{font-size:1.1rem}.public-page-hero{padding:24px 26px}}
 
 /* Keep every workspace on the marketplace blue-and-white visual system. */
@@ -126,3 +124,134 @@ body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacit
 .portal-shell .border-slate-100,.portal-shell .border-slate-200,.portal-shell .border-emerald-200 { border-color:#d5e2fb!important; }
 .portal-shell .text-ink { color:#173774!important; }
 .portal-shell [class*="bg-[linear-gradient"] { background-color:#edf3ff!important; background-image:none!important; }
+
+/* Responsive workspace shell: the desktop sidebar becomes an accessible menu. */
+.portal-sidebar-brand { display:flex; align-items:center; justify-content:space-between; }
+.portal-menu-toggle { display:none; width:46px; height:46px; place-items:center; border:1px solid var(--ld-line); border-radius:13px; background:#fff; color:var(--ld-ink); font-size:25px; cursor:pointer; }
+@media(max-width:1023px){
+  .portal-shell { padding:0!important; }
+  .portal-shell > .mx-auto { display:block!important; width:100%; max-width:none!important; }
+  .portal-sidebar { position:sticky!important; top:0; z-index:60; width:100%; border:0!important; border-bottom:1px solid var(--ld-line)!important; border-radius:0!important; padding:.55rem .8rem!important; box-shadow:0 5px 18px rgba(23,55,116,.08)!important; }
+  .portal-sidebar-brand > a { padding:.2rem!important; }
+  .portal-brand-logo { width:62px; height:62px; }
+  .portal-menu-toggle { display:grid; }
+  .portal-nav-wrap,.portal-sidebar-account { display:none; }
+  .portal-sidebar.portal-nav-is-open .portal-nav-wrap,.portal-sidebar.portal-nav-is-open .portal-sidebar-account { display:block; }
+  .portal-nav-wrap { margin-top:.65rem!important; padding-top:.7rem!important; }
+  .portal-nav-wrap nav { max-height:calc(100vh - 190px); overflow-y:auto; overscroll-behavior:contain; padding-right:2px; }
+  .portal-sidebar-account { margin-top:.7rem!important; }
+  .portal-shell > .mx-auto > .min-w-0 { min-width:0; padding:.75rem; }
+  .portal-shell .grid-cols-2,.portal-shell .grid-cols-3,.portal-shell .grid-cols-4,.portal-shell .grid-cols-5 { grid-template-columns:minmax(0,1fr)!important; }
+  .portal-shell .overflow-x-auto { width:100%; -webkit-overflow-scrolling:touch; }
+  .portal-shell table { min-width:38rem; font-size:.75rem; }
+  .portal-shell input,.portal-shell select,.portal-shell textarea { max-width:100%; font-size:16px!important; }
+  .portal-shell .flex { min-width:0; }
+  .portal-shell .whitespace-nowrap { white-space:normal; }
+}
+@media(max-width:600px){
+  .public-brand-mark { width:42px; height:42px; }
+  .public-actions .public-cta { min-height:42px; }
+  .portal-shell > .mx-auto > .min-w-0 { padding:.6rem; }
+  .portal-shell header { padding:1rem!important; }
+  .portal-shell h1 { font-size:1.5rem!important; line-height:1.2!important; }
+  .portal-shell .rounded-2xl,.portal-shell .rounded-3xl { border-radius:1rem!important; }
+  .portal-shell table { min-width:34rem; }
+}
+
+/* Small-screen finishing pass: no horizontal overflow, compact imagery, and
+   comfortably tappable controls without desktop-sized type. */
+.mobile-nav-actions { display:none; }
+@media(max-width:900px){
+  html,body { max-width:100%; overflow-x:hidden; }
+  img,video,iframe { max-width:100%; }
+  .public-nav-shell { min-height:68px; }
+  .public-brand-mark { width:46px; height:46px; }
+  .public-actions { display:none; }
+  .public-nav { padding:8px; }
+  .public-nav a { min-height:44px; font-size:13px; }
+  .mobile-nav-actions { display:grid; gap:3px; margin-top:4px; padding-top:7px; border-top:1px solid var(--ld-line); }
+  .public-nav .mobile-nav-actions a { display:flex; align-items:center; gap:8px; color:var(--ld-ink); }
+  .public-nav .mobile-nav-actions .mobile-nav-cta { justify-content:center; margin-top:3px; background:var(--ld-green); color:#fff; }
+  .public-page-hero { padding:20px!important; }
+  .public-page-hero h1 { font-size:1.45rem!important; line-height:1.2!important; }
+  .public-card-grid { gap:12px; }
+  .catalog-media { height:140px; }
+  .catalog-body { padding:14px; }
+  .catalog-title { font-size:1rem; }
+  .deal-map-copy { padding:20px; }
+}
+@media(max-width:600px){
+  .public-main { width:min(100% - 20px,1500px); padding-top:14px; }
+  .public-nav-shell { width:min(100% - 20px,1500px); min-height:64px; }
+  .public-brand-mark { width:40px; height:40px; }
+  .public-nav-shell .nav-menu-toggle { width:42px; height:42px; font-size:23px; }
+  .public-page-hero { padding:16px!important; }
+  .public-page-hero p,.public-main .text-sm { font-size:.75rem!important; line-height:1.45!important; }
+  .public-main h2 { font-size:1.05rem!important; line-height:1.25!important; }
+  .catalog-media { height:125px; }
+  .catalog-copy,.catalog-meta { font-size:.72rem; }
+  .portal-shell .portal-panel-header,.portal-shell .portal-panel > .p-6 { padding:1rem!important; }
+  .portal-shell .portal-heading { font-size:.95rem!important; }
+  .portal-shell .text-sm { font-size:.75rem!important; }
+  .portal-shell .text-xs { font-size:.68rem!important; }
+  .portal-shell button,.portal-shell .app-button { min-height:42px; }
+}
+@media(max-width:420px){
+  .public-main { width:min(100% - 16px,1500px); padding-top:10px; }
+  .public-nav-shell { width:min(100% - 16px,1500px); }
+  .public-nav a { min-height:40px; padding:10px!important; font-size:12px!important; }
+  .public-page-hero { padding:14px!important; }
+  .public-page-hero h1,.public-main h1 { font-size:1.25rem!important; }
+  .public-main h2 { font-size:.95rem!important; }
+  .public-main p,.public-main .catalog-copy { font-size:.7rem!important; line-height:1.4!important; }
+  .catalog-media { height:108px; }
+  .catalog-body { padding:12px; }
+  .catalog-title { font-size:.9rem; }
+  .portal-brand-logo { width:46px!important; height:46px!important; }
+  .portal-menu-toggle { width:40px; height:40px; font-size:21px; }
+  .portal-shell > .mx-auto > .min-w-0 { padding:.45rem; }
+  .portal-shell header { padding:.8rem!important; }
+  .portal-shell h1 { font-size:1.25rem!important; }
+  .portal-shell .portal-panel-header,.portal-shell .portal-panel > .p-6 { padding:.85rem!important; }
+  .portal-shell .p-5,.portal-shell .p-6 { padding:1rem!important; }
+}
+
+/* Focused customer offer page. */
+.deal-page { width:min(100%,68rem); margin:0 auto; padding:4px 0 22px; }
+.deal-back { display:inline-flex; align-items:center; gap:7px; color:#64748b; font-size:12px; font-weight:800; text-decoration:none; }
+.deal-back:hover { color:var(--ld-green); }
+.deal-showcase { display:grid; grid-template-columns:minmax(15rem,.78fr) minmax(0,1.22fr); margin-top:15px; overflow:hidden; border:1px solid var(--ld-line); border-radius:24px; background:#fff; box-shadow:0 18px 45px rgba(23,55,116,.10); }
+.deal-showcase-media { position:relative; display:grid; min-height:360px; place-items:center; overflow:hidden; background:linear-gradient(145deg,#294d98,#173774); color:#dce8ff; }
+.deal-showcase-media img { width:100%; height:100%; object-fit:cover; }
+.deal-showcase-media > i { font-size:74px; opacity:.9; }
+.deal-category { position:absolute; top:16px; left:16px; border-radius:999px; padding:7px 10px; background:rgba(255,255,255,.93); color:#173774; font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+.deal-showcase-content { display:grid; grid-template-columns:minmax(0,1fr) 220px; gap:28px; padding:34px; }
+.deal-eyebrow { margin:0; color:#294d98; font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.deal-main-copy h1 { margin:9px 0 0; color:#173774; font-size:clamp(1.65rem,3vw,2.5rem); line-height:1.13; letter-spacing:-.05em; }
+.deal-description { margin:16px 0 0; color:#64748b; font-size:14px; line-height:1.65; }
+.deal-price { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin-top:19px; }
+.deal-price del { color:#94a3b8; font-size:13px; font-weight:700; }
+.deal-price strong { color:#173774; font-size:25px; letter-spacing:-.04em; }
+.deal-vendor { display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:9px; margin-top:27px; padding-top:18px; border-top:1px solid #e7edf9; color:#173774; text-decoration:none; }
+.deal-vendor > span:first-child { display:grid; width:34px; height:34px; place-items:center; border-radius:10px; background:#edf3ff; color:#294d98; }
+.deal-vendor b,.deal-vendor small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.deal-vendor b { font-size:12px; }
+.deal-vendor small { margin-top:2px; color:#71809a; font-size:10px; font-weight:600; }
+.deal-vendor > i { font-size:13px; }
+.deal-claim-card { align-self:start; padding:20px; border:1px solid #d5e2fb; border-radius:18px; background:#f5f8ff; }
+.deal-claim-icon { display:grid; width:36px; height:36px; place-items:center; border-radius:11px; background:#294d98; color:#fff; font-size:17px; }
+.deal-claim-card h2 { margin:16px 0 0; color:#173774; font-size:18px; letter-spacing:-.04em; }
+.deal-claim-card p { margin:7px 0 0; color:#64748b; font-size:11px; line-height:1.55; }
+.deal-claim-button,.deal-save-button { display:flex; align-items:center; justify-content:center; width:100%; min-height:43px; border-radius:10px; font-size:11px; font-weight:800; text-decoration:none; }
+.deal-claim-button { gap:7px; margin-top:19px; background:#294d98; color:#fff; }
+.deal-claim-button:hover { background:#173774; color:#fff; }
+.deal-claim-card form { margin-top:7px; }
+.deal-save-button { gap:6px; border:1px solid #cddcff; background:#fff; color:#294d98; }
+.deal-save-button:hover { border-color:#294d98; }
+.deal-utility-row { display:flex; align-items:start; justify-content:space-between; gap:14px; margin-top:13px; }
+.deal-utility-row > a,.deal-utility-row summary { display:inline-flex; align-items:center; gap:7px; min-height:40px; color:#294d98; font-size:11px; font-weight:800; text-decoration:none; cursor:pointer; }
+.deal-utility-row details { position:relative; }
+.deal-utility-row details p { position:absolute; z-index:5; top:36px; right:0; width:min(280px,calc(100vw - 40px)); margin:0; padding:13px; border:1px solid var(--ld-line); border-radius:12px; background:#fff; box-shadow:0 12px 28px rgba(23,55,116,.12); color:#64748b; font-size:11px; line-height:1.55; }
+@media(max-width:900px){ .deal-showcase { grid-template-columns:minmax(12rem,.7fr) minmax(0,1.3fr); } .deal-showcase-media { min-height:310px; } .deal-showcase-content { grid-template-columns:minmax(0,1fr) 205px; gap:20px; padding:26px; } }
+@media(max-width:680px){ .deal-showcase { grid-template-columns:1fr; border-radius:18px; } .deal-showcase-media { min-height:205px; max-height:245px; } .deal-showcase-content { grid-template-columns:1fr; gap:20px; padding:20px; } .deal-claim-card { display:grid; grid-template-columns:38px minmax(0,1fr); column-gap:12px; padding:16px; } .deal-claim-icon { grid-row:span 2; } .deal-claim-card h2 { margin:0; font-size:16px; } .deal-claim-card p { margin:2px 0 0; } .deal-claim-button,.deal-claim-card form { grid-column:1/-1; } .deal-claim-button { margin-top:15px; } .deal-utility-row { margin-top:7px; } }
+@media(max-width:420px){ .deal-page { padding-bottom:14px; } .deal-back { font-size:11px; } .deal-showcase { margin-top:10px; } .deal-showcase-media { min-height:170px; } .deal-category { top:11px; left:11px; padding:6px 8px; font-size:9px; } .deal-showcase-content { padding:16px; } .deal-main-copy h1 { font-size:1.45rem!important; } .deal-description { margin-top:11px; font-size:12px!important; } .deal-price { margin-top:14px; } .deal-price strong { font-size:21px; } .deal-vendor { margin-top:19px; padding-top:14px; } .deal-utility-row > a,.deal-utility-row summary { font-size:10px; } }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Locatediscount{% endblock %}</title>
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.png') }}">
+  <link rel="icon" type="image/png" sizes="any" href="{{ url_for('static', filename='img/favicon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
@@ -19,21 +19,26 @@
 <body class="public-body min-h-screen">
   <div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page">
     <div class="page-loader-card">
-      <img class="page-loader-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="" aria-hidden="true">
-      <span class="page-loader-spinner" aria-hidden="true"></span>
-      <span class="page-loader-copy">Loading</span>
+      <img class="page-loader-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="" aria-hidden="true">
     </div>
   </div>
   {% block site_header %}
   <header class="public-header">
     <div class="public-nav-shell">
-      <a href="{{ url_for('home') }}" class="public-brand"><img class="public-brand-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a>
+      <a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a>
       <button class="nav-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false"><span class="visually-hidden">Open navigation</span><i class="bi bi-list" aria-hidden="true"></i></button>
       <nav class="public-nav" id="public-main-nav" aria-label="Main navigation">
-        <a class="{% if request.endpoint in ('home', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('home') }}"><i class="bi bi-compass"></i> Discover</a>
-        <a class="{% if request.endpoint in ('products', 'product_detail') %}active{% endif %}" href="{{ url_for('products') }}"><i class="bi bi-bag"></i> Products</a>
+        <a class="{% if request.endpoint in ('home', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('home') }}"><i class="bi bi-ticket-perforated"></i> Deals</a>
         <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>
         <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>
+        <div class="mobile-nav-actions">
+          {% if current_user %}
+            <a class="mobile-nav-account" href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}"><i class="bi bi-person-circle"></i> {{ current_user.name }}</a>
+          {% else %}
+            <a href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Business sign in</a>
+            <a class="mobile-nav-cta" href="{{ url_for('register') }}"><i class="bi bi-plus-circle"></i> List a business</a>
+          {% endif %}
+        </div>
       </nav>
       <div class="public-actions">
         {% if current_user %}
@@ -51,7 +56,7 @@
     {% block content %}{% endblock %}
   </main>
   {% block site_footer %}
-  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand"><img class="public-brand-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Local discovery made rewarding.</small></span></a><p>Find trusted local products, claim free offer vouchers, and redeem directly with businesses.</p></div><nav><a href="{{ url_for('products') }}">Products</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a><a href="{{ url_for('policies') }}">Policies</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
+  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a><p>Find nearby vendor deals, claim a free offer voucher, and redeem directly with the business.</p></div><nav><a href="{{ url_for('home') }}">Deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a><a href="{{ url_for('policies') }}">Policies</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
   {% endblock %}
 </body>
 </html>

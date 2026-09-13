@@ -88,15 +88,10 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         image_name = connection.execute("SELECT file_name FROM product_images WHERE product_id = ?", (product_id,)).fetchone()[0]
         connection.close()
         self.assertTrue((Path(self.app.config["UPLOAD_FOLDER"]) / image_name).is_file())
-        self.assertIn(b"How it works", self.client.get(f"/products/{product_id}").data)
-        home_search = self.client.get("/?q=Lunch")
-        self.assertIn(b"Products matching", home_search.data)
-        self.assertIn(b"Lunch bowl", home_search.data)
-        self.assertIn(f'/products/{product_id}'.encode(), home_search.data)
+        product_redirect = self.client.get(f"/products/{product_id}")
+        self.assertEqual(product_redirect.status_code, 302)
         suggestions = self.client.get("/search/suggestions?q=clothes").get_json()["suggestions"]
         self.assertIn({"label": "Clothes & fashion", "kind": "category", "value": "Shopping", "detail": "Category"}, suggestions)
-        suggestions = self.client.get("/search/suggestions?q=Lunch").get_json()["suggestions"]
-        self.assertTrue(any(item["value"] == "Lunch bowl" for item in suggestions))
 
         response = self.post(
             "/business/deals/new",
@@ -126,9 +121,13 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.assertIn(b"Deal approved and live", response.data)
         self.logout()
 
-        product_page = self.client.get(f"/products/{product_id}")
-        self.assertIn(b"Generate code", product_page.data)
-        self.assertIn(f'/deals/{created_deal_id}/claim'.encode(), product_page.data)
+        home_search = self.client.get("/?q=lunch&area=Lagos")
+        self.assertIn(b"20% off lunch", home_search.data)
+        self.assertNotIn(b"Lunch bowl", home_search.data)
+        suggestions = self.client.get("/search/suggestions?q=Lunch").get_json()["suggestions"]
+        self.assertTrue(any(item["value"] == "20% off lunch" and item["detail"] == "Deal" for item in suggestions))
+        deal_page = self.client.get(f"/deals/{created_deal_id}")
+        self.assertIn(b"Get your voucher", deal_page.data)
         conflicting_phone = self.post(
             f"/deals/{created_deal_id}/claim",
             {"name": "Merchant Owner", "phone": "+2348012345678", "area": "Ikeja"},
@@ -141,7 +140,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         deal_id = connection.execute("SELECT id FROM deals").fetchone()[0]
         connection.close()
         response = self.client.get(f"/deals/{deal_id}")
-        self.assertIn(b"Choose the quantity you want.", response.data)
+        self.assertIn(b"Claim this deal", response.data)
         response = self.client.get(f"/deals/{deal_id}/claim")
         self.assertIn(b"A few details first", response.data)
         response = self.post(
@@ -239,6 +238,86 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         response = self.client.post("/login", data={"email": "any@example.com", "password": "not-used"})
         self.assertEqual(response.status_code, 400)
 
+    def test_deleted_category_stays_deleted_after_database_reinitialization(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("DELETE FROM categories WHERE name = 'Beauty'")
+        connection.commit()
+        connection.close()
+
+        result = self.app.test_cli_runner().invoke(args=["init-db"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        connection = sqlite3.connect(self.database)
+        self.assertIsNone(connection.execute("SELECT 1 FROM categories WHERE name = 'Beauty'").fetchone())
+        connection.close()
+
+    def test_demo_seed_is_disabled_without_explicit_opt_in(self):
+        result = self.app.test_cli_runner().invoke(args=["seed-demo"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Demo seeding is disabled", result.output)
+
+    def test_admin_can_remove_an_unused_pending_business(self):
+        self.post(
+            "/register",
+            {
+                "name": "Unverified Owner", "email": "unverified@example.com",
+                "phone": "+2348012345699", "password": "UnverifiedPassword123",
+                "business_name": "Unverified Shop", "category": "Shopping",
+                "address": "10 Review Street", "city": "Lagos",
+            },
+        )
+        connection = sqlite3.connect(self.database)
+        business_id, owner_id = connection.execute(
+            "SELECT id, owner_id FROM businesses WHERE name = 'Unverified Shop'"
+        ).fetchone()
+        connection.close()
+        self.create_admin()
+        self.logout()
+        self.login("admin@example.com", "AdminPassword123")
+
+        response = self.post(f"/admin/businesses/{business_id}/delete", {}, follow_redirects=True)
+        self.assertIn(b"Unverified business registration removed", response.data)
+        connection = sqlite3.connect(self.database)
+        self.assertIsNone(connection.execute("SELECT 1 FROM businesses WHERE id = ?", (business_id,)).fetchone())
+        self.assertIsNone(connection.execute("SELECT 1 FROM users WHERE id = ?", (owner_id,)).fetchone())
+        connection.close()
+
+    def test_admin_can_purge_legacy_demo_catalogue_without_activity(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute(
+            """INSERT INTO users (email, phone, password_hash, role, name, created_at)
+               VALUES (?, ?, ?, 'business', ?, ?)""",
+            ("demo-vendor-1@locatediscount.invalid", "+2348011111199",
+             generate_password_hash("DemoVendorPassword123"), "Demo Owner", timestamp()),
+        )
+        owner_id = connection.execute(
+            "SELECT id FROM users WHERE email = 'demo-vendor-1@locatediscount.invalid'"
+        ).fetchone()[0]
+        connection.execute(
+            """INSERT INTO businesses (owner_id, name, category, address, city, is_approved, created_at)
+               VALUES (?, 'Legacy Demo Shop', 'Shopping', '12 Test Street', 'Lagos', 1, ?)""",
+            (owner_id, timestamp()),
+        )
+        business_id = connection.execute(
+            "SELECT id FROM businesses WHERE owner_id = ?", (owner_id,)
+        ).fetchone()[0]
+        connection.execute(
+            """INSERT INTO deals (business_id, title, description, category, terms, expires_at,
+               redemption_limit, created_at) VALUES (?, 'Legacy deal', 'Demo description', 'Shopping',
+               'Demo terms', '2030-12-31T17:00:00+00:00', 10, ?)""",
+            (business_id, timestamp()),
+        )
+        connection.commit()
+        connection.close()
+        self.create_admin()
+        self.login("admin@example.com", "AdminPassword123")
+
+        response = self.post(f"/admin/businesses/{business_id}/purge-demo", {}, follow_redirects=True)
+        self.assertIn(b"Legacy demo business and its catalogue removed", response.data)
+        connection = sqlite3.connect(self.database)
+        self.assertIsNone(connection.execute("SELECT 1 FROM businesses WHERE id = ?", (business_id,)).fetchone())
+        self.assertIsNone(connection.execute("SELECT 1 FROM deals WHERE business_id = ?", (business_id,)).fetchone())
+        connection.close()
+
     def test_pending_business_can_view_dashboard_but_cannot_operate(self):
         response = self.post(
             "/register",
@@ -315,8 +394,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection.close()
         self.assertEqual(row, (cloudinary_result["secure_url"], cloudinary_result["public_id"], "cloudinary"))
         detail = self.client.get(f"/products/{product_id}")
-        self.assertIn(cloudinary_result["secure_url"].encode(), detail.data)
-        self.assertIn(b"https://res.cloudinary.com", detail.headers["Content-Security-Policy"].encode())
+        self.assertEqual(detail.status_code, 302)
 
     def test_paystack_topup_is_verified_and_credited_only_once(self):
         self.post(

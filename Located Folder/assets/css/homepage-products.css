@@ -59,12 +59,17 @@
   .home-product-card > img, .home-product-placeholder { width: 118px; }
   .deal-row > a > img { width: 120px; height: 104px; }
   .category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .category-card, .category-card > img, .category-card-fallback { min-height: 230px; height: 230px; }
-  .category-card { min-height: 294px; height: 294px; }
+  .category-card, .category-card > img, .category-card-fallback { min-height: 162px; height: 162px; }
+  .category-card { min-height: 222px; height: 222px; }
   .category-card-overlay { bottom: 64px; padding: 36px 11px 11px; }
   .category-card-overlay strong { font-size: 11px; }
   .category-location { display: none; }
   .home-categories .app-pagination { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 390px) {
+  .category-grid { grid-template-columns: 1fr; }
+  .category-card, .category-card > img, .category-card-fallback { min-height: 180px; height:180px; }
+  .category-card { min-height: 240px; height:240px; }
 }
 
 /* Homepage imagery stays flat: no gradient overlays. */

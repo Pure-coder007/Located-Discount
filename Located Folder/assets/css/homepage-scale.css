@@ -54,20 +54,20 @@ body { font-size: 14px; }
 .footer-grid a:not(.site-logo) { margin-bottom: 12px; font-size: 13px; }
 .footer-bottom { padding: 18px; font-size: 11px; }
 @media (max-width: 760px) {
-  body { font-size: 14px; }
+  body { font-size: 13px; }
   .site-header { height: auto; }
   .nav-shell { padding: 16px 20px; }
   .site-logo { font-size: 16px; }
   .site-logo img { width: 38px; height: 38px; }
   .site-nav { gap: 12px; }
   .site-nav a, .site-nav button { font-size: 11px; }
-  .hero { min-height: 540px; }
-  .hero-content { padding: 82px 20px 58px; }
-  .hero h1 { font-size: 33px; }
-  .hero-copy { font-size: 15px; }
-  .hero-search input, .hero-search select { height: 55px; font-size: 14px; }
-  .hero-search button { height: 55px; font-size: 14px; }
-  .section { padding: 64px 20px; }
+  .hero { min-height: 460px; }
+  .hero-content { padding: 64px 18px 42px; }
+  .hero h1 { font-size: 28px; }
+  .hero-copy { margin:14px auto 24px; font-size: 13px; }
+  .hero-search input, .hero-search select { height: 50px; font-size: 13px; }
+  .hero-search button { height: 50px; font-size: 13px; }
+  .section { padding: 48px 18px; }
   .mosaic { gap: 10px; }
   .mosaic-card { min-height: 125px; }
   .mosaic-card.mosaic-large { min-height: 185px; }
@@ -78,10 +78,31 @@ body { font-size: 14px; }
   .deal-body p { font-size: 12px; }
   .deal-action { grid-column: 2; margin-top: -12px; text-align: left; }
   .step-grid { gap: 14px; }
-  .business-cta { min-height: 320px; padding: 48px 24px; }
-  .business-cta h2 { font-size: 31px; }
-  .business-cta span { font-size: 14px; }
-  .footer-grid { padding: 48px 24px 36px; }
+  .business-cta { min-height: 260px; padding: 38px 20px; }
+  .business-cta h2 { font-size: 27px; }
+  .business-cta span { font-size: 13px; }
+  .footer-grid { padding: 38px 20px 30px; }
+}
+@media (max-width: 420px) {
+  body { font-size:12px; }
+  .hero { min-height:390px; }
+  .hero-content { padding:48px 14px 30px; }
+  .hero-kicker { font-size:10px; }
+  .hero h1 { font-size:24px; }
+  .hero-copy { font-size:12px; }
+  .hero-search input,.hero-search select { height:46px; font-size:16px; }
+  .hero-search button { height:46px; font-size:12px; }
+  .section { padding:38px 14px; }
+  .section h2,.section-heading h2 { font-size:20px; }
+  .deal-row { grid-template-columns:88px minmax(0,1fr); gap:10px; padding:12px 0; }
+  .deal-row > img { width:88px; height:78px; }
+  .deal-body h3 { font-size:13px; }
+  .deal-body p,.deal-address { font-size:10px; }
+  .business-cta { min-height:220px; padding:30px 16px; }
+  .business-cta h2 { font-size:23px; }
+  .business-cta span { font-size:12px; }
+  .step-grid article { padding:20px 16px; }
+  .footer-grid { padding:30px 16px 25px; }
 }
 
 /* Keep the redesigned landing page on the same type family as the portal. */
