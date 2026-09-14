@@ -27,11 +27,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!preview) return;
 
     const clearPreview = () => {
-      preview.querySelectorAll("img[data-object-url]").forEach((image) => {
-        URL.revokeObjectURL(image.dataset.objectUrl);
-      });
       preview.replaceChildren();
-      preview.hidden = true;
+      preview.setAttribute("hidden", "");
+      preview.setAttribute("aria-hidden", "true");
     };
 
     input.addEventListener("change", () => {
@@ -43,15 +41,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const figure = document.createElement("figure");
         const image = document.createElement("img");
         const caption = document.createElement("figcaption");
-        const objectUrl = URL.createObjectURL(file);
-        image.src = objectUrl;
-        image.dataset.objectUrl = objectUrl;
         image.alt = `Selected deal image ${index + 1}`;
         caption.textContent = file.name;
         figure.append(image, caption);
         preview.append(figure);
+        const reader = new FileReader();
+        reader.addEventListener("load", () => { image.src = reader.result; });
+        reader.readAsDataURL(file);
       });
-      preview.hidden = false;
+      preview.removeAttribute("hidden");
+      preview.setAttribute("aria-hidden", "false");
     });
   });
 });

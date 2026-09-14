@@ -603,9 +603,21 @@ def create_app(test_config=None):
 
         user = current_user()
         business = business_for_user(user["id"]) if user and user["role"] == "business" else None
+        admin_attention = {"businesses": 0, "deals": 0, "topups": 0, "total": 0}
+        if user and user["role"] == "admin":
+            admin_attention = get_db().execute(
+                """SELECT
+                     (SELECT COUNT(*) FROM businesses WHERE is_approved = 0 AND is_blocked = 0) AS businesses,
+                     (SELECT COUNT(*) FROM deals WHERE is_approved = 0) AS deals,
+                     (SELECT COUNT(*) FROM wallet_transactions
+                        WHERE kind = 'topup' AND status = 'pending' AND reference NOT LIKE 'PSTK-%') AS topups"""
+            ).fetchone()
+            admin_attention = dict(admin_attention)
+            admin_attention["total"] = sum(admin_attention.values())
         return {
             "current_user": user,
             "current_business": business,
+            "admin_attention": admin_attention,
             "csrf_token": session.get("csrf_token"),
             "pagination_url": pagination_url,
             "product_image_url": product_image_url,
@@ -1516,8 +1528,8 @@ def create_app(test_config=None):
             if existing:
                 db.commit()
                 session["consumer_id"] = consumer_id
-                flash("This device has already generated a voucher for this deal.", "info")
-                return redirect(url_for("code_detail", code_id=existing["id"]))
+                flash("This device has already generated a voucher for this deal. Choose a different deal to claim.", "info")
+                return redirect(url_for("deals"))
             if deal["max_vouchers_per_customer"]:
                 claimed = db.execute(
                     "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND user_id = ?",
@@ -1562,6 +1574,8 @@ def create_app(test_config=None):
             return render_template("claim_code.html", deal=deal, consumer=None), 409
         except ValueError as error:
             db.rollback(); flash(str(error), "danger")
+            if str(error) == "This device has already generated a voucher for this deal.":
+                return redirect(url_for("deals"))
         return redirect(url_for("deal_detail", deal_id=deal_id))
 
     @app.route("/codes/<string:code_id>")

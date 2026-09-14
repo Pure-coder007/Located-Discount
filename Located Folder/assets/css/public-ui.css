@@ -89,6 +89,9 @@ body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacit
 .password-visibility-toggle:focus-visible { outline:2px solid var(--ld-green); outline-offset:-4px; }
 .portal-nav-disabled,.portal-action-disabled { pointer-events:none; opacity:.48; cursor:not-allowed; }
 .portal-nav-disabled { display:flex; align-items:center; gap:.75rem; border-radius:.5rem; padding:.625rem .75rem; color:#94a3b8; font-size:.7rem; line-height:1.1rem; }
+.portal-nav-label { flex:1; min-width:0; }
+.portal-nav-badge { display:grid; min-width:19px; height:19px; place-items:center; border-radius:999px; padding:0 5px; background:#e9efff; color:#294d98; font-size:9px; font-weight:800; line-height:1; }
+.portal-nav-active .portal-nav-badge { background:#294d98; color:#fff; }
 .pending-review-banner { display:flex; align-items:flex-start; gap:12px; margin-bottom:20px; border:1px solid #f2d38b; border-radius:16px; padding:16px 18px; background:#fff9e7; color:#805b13; }
 .pending-review-banner i { margin-top:2px; font-size:18px; }
 .pending-review-banner strong,.pending-review-banner span { display:block; }

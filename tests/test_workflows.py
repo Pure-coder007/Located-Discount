@@ -184,8 +184,9 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection = sqlite3.connect(self.database)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM codes").fetchone()[0], 2)
         connection.close()
-        response = self.post(f"/deals/{deal_id}/claim", {}, follow_redirects=True)
-        self.assertIn(b"already generated a voucher for this deal", response.data)
+        response = self.post(f"/deals/{deal_id}/claim", {})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/deals"))
 
         self.post(
             "/register",
