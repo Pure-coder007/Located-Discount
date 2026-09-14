@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}{% if selected_category %}{{ selected_category }} deals{% else %}Local deals{% endif %} | Locatediscount{% endblock %}
+{% block content %}
+<section class="public-page-hero">
+  <div>
+    <p class="app-label">Local offers</p>
+    <h1 class="mt-2 font-extrabold">{% if selected_category %}{{ selected_category }} deals{% else %}Deals worth claiming nearby.{% endif %}</h1>
+    <p class="mt-2 max-w-2xl text-sm text-slate-500">Browse vendor offers by category, search, or location.</p>
+    <form class="public-search" method="get">
+      <input name="q" value="{{ query }}" placeholder="Search deals or vendors">
+      <input name="area" value="{{ area }}" placeholder="City or area">
+      <select name="category" aria-label="Filter by category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>
+      <button type="submit"><i class="bi bi-search"></i> Find deals</button>
+    </form>
+  </div>
+  <span class="hero-icon"><i class="bi bi-ticket-perforated"></i></span>
+</section>
+<div class="mt-7 flex items-end justify-between gap-4">
+  <div><p class="app-label">Deal catalogue</p><h2 class="mt-1 text-xl font-extrabold">{{ total }} deal{% if total != 1 %}s{% endif %} found</h2></div>
+  {% if query or area or selected_category %}<a class="text-xs font-extrabold text-pine" href="{{ url_for('deals') }}">Clear filters <i class="bi bi-x-circle"></i></a>{% endif %}
+</div>
+<section class="public-card-grid">
+  {% for deal in deals %}
+    <a class="catalog-card" href="{{ url_for('deal_detail', deal_id=deal.id) }}">
+      <span class="catalog-media">{% if deal.image_secure_url %}<img src="{{ deal.image_secure_url }}" alt="{{ deal.title }}">{% elif deal.image_file_name %}<img src="{{ url_for('static', filename='uploads/products/' ~ deal.image_file_name) }}" alt="{{ deal.title }}">{% else %}<i class="bi bi-ticket-perforated"></i>{% endif %}</span>
+      <span class="catalog-body"><span class="catalog-kicker">{{ deal.category }} · {{ deal.business_name }}</span><strong class="catalog-title">{{ deal.title }}</strong><span class="catalog-copy"><i class="bi bi-geo-alt"></i> {{ deal.address }}, {{ deal.city }}</span><span class="catalog-meta"><b class="catalog-price">₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</b><span class="catalog-link">View deal <i class="bi bi-arrow-right"></i></span></span></span>
+    </a>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-ticket-perforated"></i><h2>{% if selected_category %}No deals in {{ selected_category }} yet{% else %}No deals match yet{% endif %}</h2><p>{% if selected_category %}This category is ready for offers. Check back soon or explore another category.{% else %}Try another search term, category, city, or area.{% endif %}</p></div>
+  {% endfor %}
+</section>
+{% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='deals') }}
+{% endblock %}

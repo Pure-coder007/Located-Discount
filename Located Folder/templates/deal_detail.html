@@ -2,7 +2,7 @@
 {% block title %}{{ deal.title }} | Locatediscount{% endblock %}
 {% block content %}
 <div class="deal-page">
-  <a href="{{ url_for('home') }}" class="deal-back"><i class="bi bi-arrow-left"></i> All deals</a>
+  <a href="{{ url_for('deals') }}" class="deal-back"><i class="bi bi-arrow-left"></i> All deals</a>
 
   <article class="deal-showcase">
     <div class="deal-showcase-media">
@@ -28,6 +28,7 @@
           <span><b>{{ deal.business_name }}</b><small>{{ deal.address }}, {{ deal.city }}</small></span>
           <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
         </a>
+        {% if deal.opening_hours %}<p class="deal-hours"><i class="bi bi-clock"></i><span>{{ deal.opening_hours }}</span></p>{% endif %}
       </div>
 
       <aside class="deal-claim-card">

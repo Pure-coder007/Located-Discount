@@ -124,6 +124,9 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         home_search = self.client.get("/?q=lunch&area=Lagos")
         self.assertIn(b"20% off lunch", home_search.data)
         self.assertNotIn(b"Lunch bowl", home_search.data)
+        empty_category_page = self.client.get("/deals?category=Beauty")
+        self.assertEqual(empty_category_page.status_code, 200)
+        self.assertIn(b"No deals in Beauty yet", empty_category_page.data)
         suggestions = self.client.get("/search/suggestions?q=Lunch").get_json()["suggestions"]
         self.assertTrue(any(item["value"] == "20% off lunch" and item["detail"] == "Deal" for item in suggestions))
         deal_page = self.client.get(f"/deals/{created_deal_id}")
@@ -161,8 +164,8 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection.close()
         self.assertEqual(code_owner, "Test Customer")
 
-        # One device can hold only one active code for a particular vendor,
-        # even when that vendor has several different deals.
+        # A device may claim different deals, but can never generate a second
+        # voucher for the same deal (including after its first code is redeemed).
         connection = sqlite3.connect(self.database)
         business_id = connection.execute("SELECT id FROM businesses WHERE name = 'Fresh Bowl'").fetchone()[0]
         connection.execute(
@@ -177,10 +180,12 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection.commit()
         connection.close()
         response = self.post(f"/deals/{second_deal_id}/claim", {}, follow_redirects=True)
-        self.assertIn(b"already has an active code for this business", response.data)
+        self.assertIn(b"Show this code to the business", response.data)
         connection = sqlite3.connect(self.database)
-        self.assertEqual(connection.execute("SELECT COUNT(*) FROM codes").fetchone()[0], 1)
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM codes").fetchone()[0], 2)
         connection.close()
+        response = self.post(f"/deals/{deal_id}/claim", {}, follow_redirects=True)
+        self.assertIn(b"already generated a voucher for this deal", response.data)
 
         self.post(
             "/register",
@@ -204,7 +209,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.assertIn(b"Voucher validated", response.data)
 
         connection = sqlite3.connect(self.database)
-        code_status = connection.execute("SELECT status FROM codes").fetchone()[0]
+        code_status = connection.execute("SELECT status FROM codes WHERE value = ?", (code_value,)).fetchone()[0]
         balance = connection.execute("SELECT wallet_balance FROM businesses").fetchone()[0]
         ledger_count = connection.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0]
         platform_revenue = connection.execute("SELECT COALESCE(SUM(fee_charged), 0) FROM ledger_entries").fetchone()[0]

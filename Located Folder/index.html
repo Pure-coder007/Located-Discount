@@ -43,7 +43,7 @@
           <i class="bi bi-list" aria-hidden="true"></i>
         </button>
         <nav class="site-nav" id="home-main-nav">
-          <a class="active" href="{{ url_for('home') }}"
+          <a class="active" href="{{ url_for('deals') }}"
             ><i class="bi bi-ticket-perforated"></i> Deals</a
           ><a href="{{ url_for('vendors') }}"
             ><i class="bi bi-shop"></i> Vendors</a
@@ -220,7 +220,7 @@
           {% for category in category_tiles %}
           <a
             class="category-card"
-            href="{{ url_for('home', area=area, category=category.name) }}"
+            href="{{ url_for('deals', area=area, category=category.name) }}"
           >
             {% if category.image_file_name or category.image_secure_url %}<img
               src="{{ category_image_url(category) }}"

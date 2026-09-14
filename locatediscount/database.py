@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS codes (
   quantity INTEGER NOT NULL DEFAULT 1,
   unit_price_kobo INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS device_deal_claims (
+  deal_id UUID NOT NULL REFERENCES deals(id),
+  device_id UUID NOT NULL REFERENCES consumer_devices(id),
+  code_id UUID REFERENCES codes(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (deal_id, device_id)
+);
 CREATE TABLE IF NOT EXISTS deal_images (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   deal_id UUID NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
@@ -197,6 +204,7 @@ CREATE INDEX IF NOT EXISTS deals_active_idx ON deals(is_active, expires_at);
 CREATE INDEX IF NOT EXISTS codes_value_idx ON codes(value);
 CREATE INDEX IF NOT EXISTS codes_user_status_idx ON codes(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS codes_device_status_idx ON codes(device_id, status, created_at);
+CREATE INDEX IF NOT EXISTS device_deal_claims_code_idx ON device_deal_claims(code_id);
 CREATE INDEX IF NOT EXISTS products_business_active_idx ON products(business_id, is_active);
 CREATE INDEX IF NOT EXISTS product_images_product_idx ON product_images(product_id, sort_order);
 CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order);
@@ -231,7 +239,15 @@ CREATE TABLE IF NOT EXISTS deal_images (
   created_at TEXT NOT NULL,
   UNIQUE(deal_id, sort_order)
 );
+CREATE TABLE IF NOT EXISTS device_deal_claims (
+  deal_id UUID NOT NULL REFERENCES deals(id),
+  device_id UUID NOT NULL REFERENCES consumer_devices(id),
+  code_id UUID REFERENCES codes(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (deal_id, device_id)
+);
 CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order);
+CREATE INDEX IF NOT EXISTS device_deal_claims_code_idx ON device_deal_claims(code_id);
 """
 
 

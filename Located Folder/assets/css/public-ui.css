@@ -268,6 +268,17 @@ body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacit
 @media(max-width:600px){ .catalog-media.vendor-deal-media { height:150px; } }
 @media(max-width:420px){ .catalog-media.vendor-deal-media { height:130px; } }
 
+/* Multi-image preview used by the vendor deal form. */
+.deal-image-previews { grid-template-columns:repeat(5, minmax(0, 1fr)); gap:10px; margin-top:12px; }
+.deal-image-previews:not([hidden]) { display:grid; }
+.deal-image-previews figure { min-width:0; overflow:hidden; border:1px solid var(--ld-line); border-radius:12px; background:#f8fafc; }
+.deal-image-previews img { display:block; width:100%; aspect-ratio:1.2; object-fit:cover; }
+.deal-image-previews figcaption { overflow:hidden; padding:6px 7px; color:var(--ld-muted); font-size:9px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.deal-hours { display:flex; align-items:flex-start; gap:9px; margin-top:12px; color:#5d6a7d; font-size:11px; line-height:1.55; }
+.deal-hours i { flex:0 0 auto; color:var(--ld-green); font-size:14px; }
+.deal-hours span { white-space:pre-line; }
+@media(max-width:600px){ .deal-image-previews { grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }.deal-image-previews figcaption { font-size:8px; } }
+
 /* Voucher pass: clear status, QR, amount, and only the details customers need. */
 .voucher-page { width:min(100%,31rem); margin:0 auto; padding:4px 0 24px; }
 .voucher-back { display:inline-flex; align-items:center; gap:7px; color:#64748b; font-size:12px; font-weight:800; text-decoration:none; }

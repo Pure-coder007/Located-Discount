@@ -246,6 +246,13 @@ def create_app(test_config=None):
               quantity INTEGER NOT NULL DEFAULT 1,
               unit_price_kobo INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS device_deal_claims (
+              deal_id TEXT NOT NULL REFERENCES deals(id),
+              device_id TEXT NOT NULL REFERENCES consumer_devices(id),
+              code_id TEXT REFERENCES codes(id),
+              created_at TEXT NOT NULL,
+              PRIMARY KEY (deal_id, device_id)
+            );
             CREATE TABLE IF NOT EXISTS deal_images (
               id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
               deal_id TEXT NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
@@ -343,6 +350,7 @@ def create_app(test_config=None):
             CREATE INDEX IF NOT EXISTS deals_active_idx ON deals(is_active, expires_at);
             CREATE INDEX IF NOT EXISTS codes_value_idx ON codes(value);
             CREATE INDEX IF NOT EXISTS codes_user_status_idx ON codes(user_id, status, created_at);
+            CREATE INDEX IF NOT EXISTS device_deal_claims_code_idx ON device_deal_claims(code_id);
             CREATE INDEX IF NOT EXISTS products_business_active_idx ON products(business_id, is_active);
             CREATE INDEX IF NOT EXISTS product_images_product_idx ON product_images(product_id, sort_order);
             CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order);
@@ -784,6 +792,14 @@ def create_app(test_config=None):
                 result[day] = hours.strip()
         return result
 
+    def normalize_opening_hours(value):
+        """Keep business hours readable and safe to display on a deal page."""
+        lines = [" ".join(line.split()) for line in (value or "").splitlines()]
+        lines = [line for line in lines if line]
+        if len(lines) > 7 or any(len(line) > 80 for line in lines):
+            return None
+        return "\n".join(lines)
+
     def product_image_extension(upload):
         """Accept only common raster image signatures, never client-supplied extensions."""
         header = upload.stream.read(16)
@@ -1160,6 +1176,58 @@ def create_app(test_config=None):
             ),
         )
 
+    @app.route("/deals")
+    def deals():
+        """Dedicated catalogue for category links and all public deal browsing."""
+        category = request.args.get("category", "")
+        query = request.args.get("q", "").strip()
+        area = request.args.get("area", "").strip()
+        sort = request.args.get("sort", "newest")
+        categories = category_names()
+        selected_category = category if category in categories else ""
+        if not selected_category:
+            matched_category = matching_category_for_query(query, categories)
+            if matched_category:
+                selected_category = matched_category
+                query = ""
+
+        sql = """SELECT deals.*, businesses.name AS business_name, businesses.city, businesses.address,
+                         (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
+                         (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url
+                  FROM deals JOIN businesses ON businesses.id = deals.business_id
+                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                    AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
+        params = [timestamp()]
+        if selected_category:
+            sql += " AND deals.category = ?"
+            params.append(selected_category)
+        if query:
+            sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ?)"
+            params.extend([f"%{query}%"] * 4)
+        if area:
+            sql += " AND (businesses.city LIKE ? OR businesses.address LIKE ?)"
+            params.extend([f"%{area}%", f"%{area}%"])
+        order_by = {
+            "expiring": "deals.expires_at ASC",
+            "popular": "deals.redemption_count DESC, deals.created_at DESC",
+        }.get(sort, "deals.created_at DESC")
+        proximity_params = []
+        if area:
+            order_by = """CASE WHEN LOWER(businesses.city) = LOWER(?) THEN 0
+                                 WHEN LOWER(businesses.address) LIKE LOWER(?) THEN 1 ELSE 2 END, """ + order_by
+            proximity_params = [area, f"%{area}%"]
+        db = get_db()
+        total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
+        page, total_pages, per_page, offset = page_window(total)
+        deals = db.execute(
+            sql + f" ORDER BY {order_by} LIMIT ? OFFSET ?",
+            [*params, *proximity_params, per_page, offset],
+        ).fetchall()
+        return render_template(
+            "deals.html", deals=deals, categories=categories, selected_category=selected_category,
+            query=query, area=area, selected_sort=sort, page=page, total_pages=total_pages, total=total,
+        )
+
     @app.get("/search/suggestions")
     def search_suggestions():
         query = " ".join(request.args.get("q", "").strip().split())
@@ -1441,6 +1509,15 @@ def create_app(test_config=None):
                 raise ValueError("All of today's vouchers have been claimed. Please try again tomorrow.")
             consumer_id = consumer["id"] if consumer else create_consumer_profile(db, name, phone, area)
             device_id = ensure_consumer_device(db, consumer_id)
+            existing = db.execute(
+                "SELECT id FROM codes WHERE device_id = ? AND deal_id = ? ORDER BY created_at LIMIT 1",
+                (device_id, deal_id),
+            ).fetchone()
+            if existing:
+                db.commit()
+                session["consumer_id"] = consumer_id
+                flash("This device has already generated a voucher for this deal.", "info")
+                return redirect(url_for("code_detail", code_id=existing["id"]))
             if deal["max_vouchers_per_customer"]:
                 claimed = db.execute(
                     "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND user_id = ?",
@@ -1448,16 +1525,13 @@ def create_app(test_config=None):
                 ).fetchone()["total"]
                 if claimed >= deal["max_vouchers_per_customer"]:
                     raise ValueError("You have reached this deal's voucher limit per customer.")
-            existing = db.execute(
-                """SELECT codes.id FROM codes JOIN deals ON deals.id = codes.deal_id
-                   WHERE codes.device_id = ? AND deals.business_id = ? AND codes.status = 'active'""",
-                (device_id, deal["business_id"]),
-            ).fetchone()
-            if existing:
-                db.commit()
-                session["consumer_id"] = consumer_id
-                flash("This device already has an active code for this business. Redeem it before claiming another.", "info")
-                return redirect(url_for("code_detail", code_id=existing["id"]))
+            reservation = db.execute(
+                """INSERT INTO device_deal_claims (deal_id, device_id, created_at)
+                   VALUES (?, ?, ?) ON CONFLICT (deal_id, device_id) DO NOTHING""",
+                (deal_id, device_id, timestamp()),
+            )
+            if reservation.rowcount != 1:
+                raise ValueError("This device has already generated a voucher for this deal.")
             expires = min(parse_timestamp(deal["expires_at"]), utcnow() + timedelta(days=7))
             for _ in range(5):
                 value = code_value()
@@ -1465,6 +1539,10 @@ def create_app(test_config=None):
                     cursor = db.execute(
                         "INSERT INTO codes (deal_id, user_id, device_id, value, status, expires_at, created_at, quantity, unit_price_kobo) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
                         (deal_id, consumer_id, device_id, value, timestamp(expires), timestamp(), quantity, deal["discount_price_kobo"]),
+                    )
+                    db.execute(
+                        "UPDATE device_deal_claims SET code_id = ? WHERE deal_id = ? AND device_id = ?",
+                        (cursor.lastrowid, deal_id, device_id),
                     )
                     db.commit()
                     session["consumer_id"] = consumer_id
@@ -1760,6 +1838,7 @@ def create_app(test_config=None):
         business = business_for_user(current_user()["id"])
         if request.method == "POST":
             title = request.form.get("title", "").strip(); description = request.form.get("description", "").strip(); terms = request.form.get("terms", "").strip(); category = request.form.get("category", ""); expiry = request.form.get("expires_at", ""); limit = request.form.get("redemption_limit", "")
+            opening_hours = normalize_opening_hours(request.form.get("opening_hours", business["opening_hours"]))
             try: limit = int(limit)
             except ValueError: limit = 0
             try: daily_limit = int(request.form.get("daily_voucher_limit", "5"))
@@ -1771,8 +1850,8 @@ def create_app(test_config=None):
             discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
             try: expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
             except ValueError: expires_at = None
-            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow()):
-                flash("Check the prices, voucher limits, expiry, and deal details. The expiry must be in the future and the discount price must be lower than the regular price.", "danger")
+            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow()):
+                flash("Check the prices, voucher limits, opening hours, expiry, and deal details. Use at most seven opening-hours lines of up to 80 characters each.", "danger")
             else:
                 db = get_db()
                 images = []
@@ -1785,6 +1864,7 @@ def create_app(test_config=None):
                          regular_price_kobo, discount_price_kobo, daily_limit, customer_limit, timestamp()),
                     )
                     deal_id = cursor.lastrowid
+                    db.execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", (opening_hours, business["id"]))
                     for order, image in enumerate(images, start=1):
                         db.execute(
                             "INSERT INTO deal_images (deal_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -1814,6 +1894,7 @@ def create_app(test_config=None):
             terms = request.form.get("terms", "").strip()
             category = request.form.get("category", "")
             expiry = request.form.get("expires_at", "")
+            opening_hours = normalize_opening_hours(request.form.get("opening_hours", business["opening_hours"]))
             try:
                 limit = int(request.form.get("redemption_limit", ""))
                 daily_limit = int(request.form.get("daily_voucher_limit", "5"))
@@ -1827,13 +1908,13 @@ def create_app(test_config=None):
                 expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
             except ValueError:
                 expires_at = None
-            valid = (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200
+            valid = (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None
                      and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000
                      and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None
                      and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo
                      and expires_at and expires_at > utcnow())
             if not valid:
-                flash("Check the prices, voucher limits, expiry, and deal details. The discount price must be lower than the regular price.", "danger")
+                flash("Check the prices, voucher limits, opening hours, expiry, and deal details. Use at most seven opening-hours lines of up to 80 characters each.", "danger")
             else:
                 images = []
                 previous_images = []
@@ -1851,6 +1932,7 @@ def create_app(test_config=None):
                         (title, description, category, terms, timestamp(expires_at), limit, regular_price_kobo,
                          discount_price_kobo, daily_limit, customer_limit, deal_id),
                     )
+                    db.execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", (opening_hours, business["id"]))
                     for order, image in enumerate(images, start=1):
                         db.execute(
                             """INSERT INTO deal_images (deal_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at)

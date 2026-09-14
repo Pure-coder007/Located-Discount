@@ -26,9 +26,9 @@
   <header class="public-header">
     <div class="public-nav-shell">
       <a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a>
-      <button class="nav-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false"><i class="bi bi-list" aria-hidden="true"></i></button>
+      <button class="nav-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false" aria-label="Menu"><i class="bi bi-list" aria-hidden="true"></i></button>
       <nav class="public-nav" id="public-main-nav" aria-label="Main navigation">
-        <a class="{% if request.endpoint in ('home', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('home') }}"><i class="bi bi-ticket-perforated"></i> Deals</a>
+        <a class="{% if request.endpoint in ('home', 'deals', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('deals') }}"><i class="bi bi-ticket-perforated"></i> Deals</a>
         <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>
         <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>
         <div class="mobile-nav-actions">
@@ -56,7 +56,7 @@
     {% block content %}{% endblock %}
   </main>
   {% block site_footer %}
-  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a><p>Find nearby vendor deals, claim a free offer voucher, and redeem directly with the business.</p></div><nav><a href="{{ url_for('home') }}">Deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a><a href="{{ url_for('policies') }}">Policies</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
+  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a><p>Find nearby vendor deals, claim a free offer voucher, and redeem directly with the business.</p></div><nav><a href="{{ url_for('deals') }}">Deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a><a href="{{ url_for('policies') }}">Policies</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
   {% endblock %}
 </body>
 </html>
