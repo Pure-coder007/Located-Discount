@@ -28,7 +28,8 @@
           <a href="{{ url_for('admin_audit_logs') }}" class="portal-nav {% if request.endpoint == 'admin_audit_logs' %}portal-nav-active{% endif %}"><i class="bi bi-shield-check"></i> Audit logs</a>
           <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
           {% else %}
-          <a href="{{ url_for('business_dashboard') }}" class="portal-nav {% if request.endpoint == 'business_dashboard' %}portal-nav-active{% endif %}"><i class="bi bi-grid-1x2"></i> Overview</a>
+          <a href="{{ url_for('business_dashboard') }}" class="portal-nav {% if request.endpoint == 'business_dashboard' and request.args.get('section') != 'deals' %}portal-nav-active{% endif %}"><i class="bi bi-grid-1x2"></i> Overview</a>
+          <a href="{{ url_for('business_deals') }}" class="portal-nav {% if request.endpoint == 'business_deals' %}portal-nav-active{% endif %}"><i class="bi bi-ticket-perforated"></i> My deals</a>
           {% if current_business and current_business.is_approved %}
           <a href="{{ url_for('create_deal') }}" class="portal-nav {% if request.endpoint == 'create_deal' %}portal-nav-active{% endif %}"><i class="bi bi-ticket-perforated"></i> Create a deal</a>
           <a href="{{ url_for('business_analytics') }}" class="portal-nav {% if request.endpoint == 'business_analytics' %}portal-nav-active{% endif %}"><i class="bi bi-graph-up"></i> Analytics</a>

@@ -5,6 +5,7 @@ import secrets
 import smtplib
 import sqlite3
 import math
+import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -42,7 +43,6 @@ load_dotenv(BASE_DIR / ".env")
 # DATABASE_URL selects Neon/Postgres. DATABASE_PATH remains a convenient
 # SQLite fallback for local development and the isolated test suite.
 DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "instance" / "locatediscount.sqlite3"))
-CATEGORIES = ("Food & Drink", "Beauty", "Auto", "Home Services", "Shopping", "Health")
 DEFAULT_REDEMPTION_FEE = 500
 MAX_PRODUCT_IMAGES = 5
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
@@ -416,45 +416,12 @@ def create_app(test_config=None):
         initialize_default_categories(db)
 
     def initialize_default_categories(db, postgres=False):
-        """Seed starter categories once for a brand-new, unused database.
+        """Keep categories fully administrator-managed.
 
-        The sentinel is deliberately written even when a database already has
-        data.  That makes an administrator's later category deletion permanent
-        across application restarts and deployments.
+        Categories are no longer inserted automatically during startup. Any
+        categories already present in the database remain unchanged.
         """
-        if db.execute(
-            "SELECT 1 FROM platform_settings WHERE setting_key = 'category_defaults_seeded'"
-        ).fetchone():
-            return
-
-        has_categories = db.execute("SELECT 1 FROM categories LIMIT 1").fetchone()
-        has_platform_data = db.execute(
-            "SELECT 1 FROM users UNION ALL SELECT 1 FROM businesses LIMIT 1"
-        ).fetchone()
-        if not has_categories and not has_platform_data:
-            for category_name in CATEGORIES:
-                if postgres:
-                    db.execute(
-                        "INSERT INTO categories (name, created_at) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                        (category_name, timestamp()),
-                    )
-                else:
-                    db.execute(
-                        "INSERT OR IGNORE INTO categories (name, created_at) VALUES (?, ?)",
-                        (category_name, timestamp()),
-                    )
-
-        if postgres:
-            db.execute(
-                """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
-                   VALUES ('category_defaults_seeded', 1, ?) ON CONFLICT (setting_key) DO NOTHING""",
-                (timestamp(),),
-            )
-        else:
-            db.execute(
-                "INSERT OR IGNORE INTO platform_settings (setting_key, integer_value, updated_at) VALUES ('category_defaults_seeded', 1, ?)",
-                (timestamp(),),
-            )
+        return
 
     def expire_codes():
         """Persist expiry so code history and active-code uniqueness stay accurate."""
@@ -797,12 +764,63 @@ def create_app(test_config=None):
         return max(0, daily_voucher_capacity(deal) - claims)
 
     def opening_hours_by_day(value):
-        result = {day: "" for day in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
+        result = {day: {"open": "", "close": "", "closed": False, "display": ""} for day in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
         for line in (value or "").splitlines():
             day, separator, hours = line.partition(":")
             if separator and day in result:
-                result[day] = hours.strip()
+                hours = hours.strip()
+                if hours.lower() in {"closed", "close"}:
+                    result[day]["closed"] = True
+                    result[day]["display"] = "Closed"
+                    continue
+                parts = re.split(r"\s*[–—-]\s*", hours, maxsplit=1)
+                result[day]["display"] = hours
+                if len(parts) == 2:
+                    result[day]["open"], result[day]["close"] = [part.strip() for part in parts]
+                    for field in ("open", "close"):
+                        match = re.match(r"^(\d{1,2}):(\d{2})\s*([AP]M)$", result[day][field], re.I)
+                        if match:
+                            hour, minute, suffix = int(match.group(1)), match.group(2), match.group(3).upper()
+                            if suffix == "AM" and hour == 12: hour = 0
+                            if suffix == "PM" and hour != 12: hour += 12
+                            result[day][field] = f"{hour:02d}:{minute}"
         return result
+
+    def opening_hours_from_form(form, fallback=""):
+        """Build one consistent, customer-friendly schedule from the day rows."""
+        days = (("Mon", "mon"), ("Tue", "tue"), ("Wed", "wed"), ("Thu", "thu"),
+                ("Fri", "fri"), ("Sat", "sat"), ("Sun", "sun"))
+        lines = []
+        has_schedule_fields = any(
+            any(form.get(f"hours_{key}_{side}_{part}") is not None for side in ("open", "close") for part in ("hour", "minute", "period"))
+            or form.get(f"hours_{key}_open") is not None or form.get(f"hours_{key}_close") is not None or form.get(f"hours_{key}_closed") is not None
+            for _, key in days
+        )
+        for label, key in days:
+            if form.get(f"hours_{key}_closed"):
+                lines.append(f"{label}: Closed")
+                continue
+            def selected_time(prefix):
+                hour = form.get(f"{prefix}_hour", "").strip()
+                minute = form.get(f"{prefix}_minute", "").strip()
+                period = form.get(f"{prefix}_period", "").strip().upper()
+                if hour and minute and period in {"AM", "PM"}:
+                    hour = int(hour) % 12
+                    if period == "PM": hour += 12
+                    return f"{hour:02d}:{int(minute):02d}"
+                return form.get(prefix, "").strip()
+            opening = selected_time(f"hours_{key}_open")
+            closing = selected_time(f"hours_{key}_close")
+            if opening and closing:
+                def readable(time_value):
+                    hour, minute = [int(part) for part in time_value.split(":")]
+                    suffix = "AM" if hour < 12 else "PM"
+                    hour = hour % 12 or 12
+                    return f"{hour}:{minute:02d} {suffix}"
+                lines.append(f"{label}: {readable(opening)} – {readable(closing)}")
+        if not has_schedule_fields:
+            return normalize_opening_hours(fallback)
+        return normalize_opening_hours("\n".join(lines))
 
     def normalize_opening_hours(value):
         """Keep business hours readable and safe to display on a deal page."""
@@ -1147,6 +1165,13 @@ def create_app(test_config=None):
         db = get_db()
         count_sql = f"SELECT COUNT(*) total FROM ({sql}) filtered_deals"
         total = db.execute(count_sql, params).fetchone()["total"]
+        location_fallback = False
+        if area and total == 0:
+            # Location should improve discovery, never hide the marketplace.
+            sql = sql.replace(" AND (businesses.city LIKE ? OR businesses.address LIKE ?)", "")
+            params = params[:-2]
+            total = db.execute(f"SELECT COUNT(*) total FROM ({sql}) filtered_deals", params).fetchone()["total"]
+            location_fallback = True
         page, total_pages, per_page, offset = page_window(total)
         sql += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
         deals = db.execute(sql, [*params, *proximity_params, per_page, offset]).fetchall()
@@ -1181,7 +1206,7 @@ def create_app(test_config=None):
             selected_category=category, selected_sort=sort, consumer=current_consumer_profile(),
             page=page, total_pages=total_pages, total=total,
             category_tiles=category_tiles, category_page=category_page, category_pages=category_pages,
-            category_total=category_total,
+            category_total=category_total, location_fallback=location_fallback,
             deal_images=(
                 "deals/local-meal.jpg", "deals/fried-chicken.jpg", "deals/market-offer.jpg",
                 "deals/clothing-sale.jpg", "deals/sneaker-deal.jpg", "deals/boutique-style.png",
@@ -1230,6 +1255,12 @@ def create_app(test_config=None):
             proximity_params = [area, f"%{area}%"]
         db = get_db()
         total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
+        location_fallback = False
+        if area and total == 0:
+            sql = sql.replace(" AND (businesses.city LIKE ? OR businesses.address LIKE ?)", "")
+            params = params[:-2]
+            total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
+            location_fallback = True
         page, total_pages, per_page, offset = page_window(total)
         deals = db.execute(
             sql + f" ORDER BY {order_by} LIMIT ? OFFSET ?",
@@ -1238,6 +1269,7 @@ def create_app(test_config=None):
         return render_template(
             "deals.html", deals=deals, categories=categories, selected_category=selected_category,
             query=query, area=area, selected_sort=sort, page=page, total_pages=total_pages, total=total,
+            location_fallback=location_fallback,
         )
 
     @app.get("/search/suggestions")
@@ -1449,7 +1481,8 @@ def create_app(test_config=None):
         ).fetchone())
         images = get_db().execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
         return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite,
-                               images=images, daily_remaining=daily_voucher_remaining(get_db(), deal))
+                               images=images, daily_remaining=daily_voucher_remaining(get_db(), deal),
+                               opening_hours=opening_hours_by_day(deal["opening_hours"]))
 
     @app.route("/consumer")
     @roles_required("consumer")
@@ -1721,7 +1754,17 @@ def create_app(test_config=None):
         db = get_db()
         deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         deal_page, deal_pages, limit, deal_offset = page_window(deal_total, "deal_page")
-        deals = db.execute("SELECT * FROM deals WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", (business["id"], limit, deal_offset)).fetchall()
+        deals = db.execute(
+            """SELECT deals.*,
+                      CASE
+                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
+                        WHEN deals.is_approved = 0 THEN 'Pending review'
+                        WHEN deals.expires_at <= ? THEN 'Expired'
+                        ELSE 'Closed'
+                      END AS deal_status
+               FROM deals WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+            (timestamp(), timestamp(), business["id"], limit, deal_offset),
+        ).fetchall()
         ledger_total = db.execute("SELECT COUNT(*) total FROM ledger_entries WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         activity_page, activity_pages, limit, activity_offset = page_window(ledger_total, "activity_page")
         ledger = db.execute("SELECT ledger_entries.*, codes.value code, deals.title FROM ledger_entries JOIN codes ON codes.id = ledger_entries.code_id JOIN deals ON deals.id = ledger_entries.deal_id WHERE ledger_entries.business_id = ? ORDER BY ledger_entries.created_at DESC LIMIT ? OFFSET ?", (business["id"], limit, activity_offset)).fetchall()
@@ -1732,20 +1775,58 @@ def create_app(test_config=None):
                                activity_pages=activity_pages, chart=daily_redemption_series(db, business["id"]),
                                opening_hours=opening_hours_by_day(business["opening_hours"]))
 
+    @app.get("/business/deals")
+    @roles_required("business")
+    def business_deals():
+        business = business_for_user(current_user()["id"])
+        if not business:
+            abort(403)
+        db = get_db()
+        now = timestamp()
+        deals = db.execute(
+            """SELECT deals.*,
+                      COUNT(codes.id) AS claims,
+                      COALESCE(SUM(CASE WHEN codes.status = 'redeemed' THEN 1 ELSE 0 END), 0) AS redemptions,
+                      (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
+                      (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url,
+                      CASE
+                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
+                        WHEN deals.is_approved = 0 THEN 'Pending review'
+                        WHEN deals.expires_at <= ? THEN 'Expired'
+                        ELSE 'Closed'
+                      END AS deal_status
+               FROM deals LEFT JOIN codes ON codes.deal_id = deals.id
+               WHERE deals.business_id = ?
+               GROUP BY deals.id
+               ORDER BY deals.created_at DESC""",
+            (now, now, business["id"]),
+        ).fetchall()
+        summary = {
+            "total": len(deals),
+            "live": sum(1 for deal in deals if deal["deal_status"] == "Live"),
+            "pending": sum(1 for deal in deals if deal["deal_status"] == "Pending review"),
+            "closed": sum(1 for deal in deals if deal["deal_status"] in {"Closed", "Expired"}),
+            "claims": sum(deal["claims"] for deal in deals),
+            "redemptions": sum(deal["redemptions"] for deal in deals),
+        }
+        summary["conversion"] = round(summary["redemptions"] / summary["claims"] * 100, 1) if summary["claims"] else 0
+        summary["fees"] = db.execute(
+            "SELECT COALESCE(SUM(fee_charged), 0) AS total FROM ledger_entries WHERE business_id = ?",
+            (business["id"],),
+        ).fetchone()["total"]
+        return render_template(
+            "business_deals.html", business=business, deals=deals, summary=summary,
+            chart=daily_redemption_series(db, business["id"], days=14), fee=redemption_fee(db, business),
+        )
+
     @app.post("/business/opening-hours")
     @approved_business_required
     def update_opening_hours():
         business = business_for_user(current_user()["id"])
-        days = (("Mon", "mon"), ("Tue", "tue"), ("Wed", "wed"), ("Thu", "thu"),
-                ("Fri", "fri"), ("Sat", "sat"), ("Sun", "sun"))
-        lines = []
-        for label, key in days:
-            hours = " ".join(request.form.get(f"hours_{key}", "").split())
-            if len(hours) > 80:
-                abort(400)
-            if hours:
-                lines.append(f"{label}: {hours}")
-        get_db().execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", ("\n".join(lines), business["id"]))
+        opening_hours = opening_hours_from_form(request.form, business["opening_hours"])
+        if opening_hours is None:
+            abort(400)
+        get_db().execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", (opening_hours, business["id"]))
         flash("Opening hours saved. Customers can now see them on your deals.", "success")
         return redirect(url_for("business_dashboard"))
 
@@ -1852,7 +1933,7 @@ def create_app(test_config=None):
         business = business_for_user(current_user()["id"])
         if request.method == "POST":
             title = request.form.get("title", "").strip(); description = request.form.get("description", "").strip(); terms = request.form.get("terms", "").strip(); category = request.form.get("category", ""); expiry = request.form.get("expires_at", ""); limit = request.form.get("redemption_limit", "")
-            opening_hours = normalize_opening_hours(request.form.get("opening_hours", business["opening_hours"]))
+            opening_hours = opening_hours_from_form(request.form, business["opening_hours"])
             try: limit = int(limit)
             except ValueError: limit = 0
             try: daily_limit = int(request.form.get("daily_voucher_limit", "5"))
@@ -1892,7 +1973,8 @@ def create_app(test_config=None):
                 else:
                     flash("Deal submitted for admin approval. It can go live after approval and wallet funding.", "success")
                     return redirect(url_for("business_dashboard"))
-        return render_template("create_deal.html", business=business, categories=category_names(), fee=redemption_fee(business=business))
+        selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else request.form.get("opening_hours", business["opening_hours"])
+        return render_template("create_deal.html", business=business, categories=category_names(), fee=redemption_fee(business=business), opening_hours=opening_hours_by_day(selected_hours))
 
     @app.route("/business/deals/<string:deal_id>/edit", methods=("GET", "POST"))
     @approved_business_required
@@ -1964,8 +2046,10 @@ def create_app(test_config=None):
                         cleanup_product_images(previous_images)
                     flash("Deal updated and submitted for admin approval again.", "success")
                     return redirect(url_for("business_dashboard"))
+        selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else deal["opening_hours"] or business["opening_hours"]
         return render_template("create_deal.html", business=business, categories=category_names(),
-                               fee=redemption_fee(business=business), deal=deal)
+                               fee=redemption_fee(business=business), deal=deal,
+                               opening_hours=opening_hours_by_day(selected_hours))
 
     @app.route("/business/wallet", methods=("GET", "POST"))
     @approved_business_required
@@ -2270,6 +2354,31 @@ def create_app(test_config=None):
         ).fetchall()
         return render_template("admin_deals.html", deals=deals, status=status, page=page,
                                total_pages=total_pages, total=total, fee=redemption_fee(db))
+
+    @app.get("/admin/deals/<string:deal_id>")
+    @roles_required("admin")
+    def admin_deal_detail(deal_id):
+        db = get_db()
+        deal = db.execute(
+            """SELECT deals.*, businesses.name AS business_name, businesses.category AS business_category,
+                      businesses.address, businesses.city, businesses.wallet_balance, businesses.is_approved AS business_approved,
+                      businesses.is_blocked, businesses.opening_hours, users.name AS owner_name,
+                      users.email AS owner_email, users.phone AS owner_phone
+               FROM deals
+               JOIN businesses ON businesses.id = deals.business_id
+               JOIN users ON users.id = businesses.owner_id
+               WHERE deals.id = ?""",
+            (deal_id,),
+        ).fetchone()
+        if not deal:
+            abort(404)
+        images = db.execute(
+            "SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)
+        ).fetchall()
+        return render_template(
+            "admin_deal_detail.html", deal=deal, images=images,
+            opening_hours=opening_hours_by_day(deal["opening_hours"]), fee=redemption_fee(db),
+        )
 
     @app.post("/admin/deals/<string:deal_id>/approve")
     @roles_required("admin")

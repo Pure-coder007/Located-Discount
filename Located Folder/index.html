@@ -137,6 +137,7 @@
       </section>
 
       <section class="section popular">
+        {% if location_fallback %}<div class="location-fallback"><i class="bi bi-compass"></i><span><strong>Showing the full marketplace</strong><small>There are no live deals in {{ area }} yet, so you can still browse every category and offer.</small></span><a href="{{ url_for('home') }}">Clear location <i class="bi bi-arrow-right"></i></a></div>{% endif %}
         <div class="section-heading">
           <div>
             <p class="eyebrow">DEALS NEAR YOU</p>

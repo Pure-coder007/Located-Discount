@@ -19,6 +19,7 @@
   <div><p class="app-label">Deal catalogue</p><h2 class="mt-1 text-xl font-extrabold">{{ total }} deal{% if total != 1 %}s{% endif %} found</h2></div>
   {% if query or area or selected_category %}<a class="text-xs font-extrabold text-pine" href="{{ url_for('deals') }}">Clear filters <i class="bi bi-x-circle"></i></a>{% endif %}
 </div>
+{% if location_fallback %}<div class="location-fallback"><i class="bi bi-compass"></i><span><strong>Showing the full marketplace</strong><small>There are no live deals in {{ area }} yet, so you can still browse every category and offer.</small></span><a href="{{ url_for('deals') }}">Clear location <i class="bi bi-arrow-right"></i></a></div>{% endif %}
 <section class="public-card-grid">
   {% for deal in deals %}
     <a class="catalog-card" href="{{ url_for('deal_detail', deal_id=deal.id) }}">

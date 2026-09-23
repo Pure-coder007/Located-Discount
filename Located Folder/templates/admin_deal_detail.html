@@ -1,0 +1,27 @@
+{% extends 'portal_base.html' %}
+{% block title %}Review deal | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Marketplace safety{% endblock %}
+{% block portal_title %}Review deal{% endblock %}
+{% block portal_subtitle %}Read-only review workspace. Confirm the offer is accurate, useful, funded, and safe before publishing.{% endblock %}
+{% block portal_content %}
+<div class="admin-review-shell">
+  <a class="admin-review-back" href="{{ url_for('admin_deals', status='pending') }}"><i class="bi bi-arrow-left"></i> Back to deal approvals</a>
+  <section class="admin-review-hero">
+    <div><span class="admin-review-badge {% if deal.is_approved %}is-live{% endif %}"><i class="bi {% if deal.is_approved %}bi-check-circle{% else %}bi-hourglass-split{% endif %}"></i> {% if deal.is_approved %}Live deal{% else %}Awaiting approval{% endif %}</span><p class="admin-review-category">{{ deal.category }}</p><h2>{{ deal.title }}</h2><p>{{ deal.description }}</p></div>
+    <div class="admin-review-hero-price"><small>Customer pays</small><strong>₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</strong>{% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}</div>
+  </section>
+
+  <div class="admin-review-grid">
+    <main class="admin-review-main">
+      {% if images %}<section class="admin-review-card"><div class="admin-review-card-title"><div><span>Offer gallery</span><h3>Deal images</h3></div><small>{{ images|length }} of 5 images</small></div><div class="admin-review-gallery">{% for image in images %}<figure><img src="{{ product_image_url(image) }}" alt="{{ deal.title }} image {{ loop.index }}"><figcaption>Image {{ loop.index }}</figcaption></figure>{% endfor %}</div></section>{% endif %}
+      <section class="admin-review-card"><div class="admin-review-card-title"><div><span>Customer promise</span><h3>Offer description</h3></div></div><p class="admin-review-copy">{{ deal.description }}</p><div class="admin-review-note"><i class="bi bi-info-circle"></i><div><strong>Terms and exclusions</strong><p>{{ deal.terms }}</p></div></div></section>
+      <section class="admin-review-card"><div class="admin-review-card-title"><div><span>Visit information</span><h3>Business opening hours</h3></div><small>Local time</small></div>{% if deal.opening_hours %}<div class="admin-review-hours">{% for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}{% if opening_hours[day].display %}<div><b>{{ day }}</b><span>{{ opening_hours[day].display }}</span></div>{% endif %}{% endfor %}</div>{% else %}<p class="admin-review-copy">No opening hours supplied.</p>{% endif %}</section>
+    </main>
+    <aside class="admin-review-side">
+      <section class="admin-review-card"><div class="admin-review-card-title"><div><span>Decision checklist</span><h3>Publication readiness</h3></div></div><div class="admin-review-check"><div><i class="bi bi-person-check"></i><span>Business approved</span><b class="{% if deal.business_approved and not deal.is_blocked %}is-good{% else %}is-bad{% endif %}">{% if deal.business_approved and not deal.is_blocked %}Ready{% else %}Check{% endif %}</b></div><div><i class="bi bi-wallet2"></i><span>Wallet funding</span><b class="{% if deal.wallet_balance >= fee %}is-good{% else %}is-bad{% endif %}">{% if deal.wallet_balance >= fee %}Ready{% else %}Needs funding{% endif %}</b></div><div><i class="bi bi-calendar-event"></i><span>Expires</span><b>{{ deal.expires_at[:10] }}</b></div></div>{% if not deal.is_approved %}<form method="post" action="{{ url_for('approve_deal', deal_id=deal.id) }}" class="admin-review-action"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="app-button w-full" type="submit"><i class="bi bi-check2-circle"></i> Approve &amp; publish deal</button></form><p class="admin-review-readonly"><i class="bi bi-lock"></i> Review only — admins cannot edit submitted deals.</p>{% else %}<div class="admin-review-live"><i class="bi bi-broadcast"></i> This deal is currently live.</div>{% endif %}</section>
+      <section class="admin-review-card"><div class="admin-review-card-title"><div><span>Business profile</span><h3>{{ deal.business_name }}</h3></div></div><dl class="admin-review-facts"><div><dt>Owner</dt><dd>{{ deal.owner_name }}</dd></div><div><dt>Email</dt><dd>{{ deal.owner_email }}</dd></div><div><dt>Phone</dt><dd>{{ deal.owner_phone }}</dd></div><div><dt>Address</dt><dd>{{ deal.address }}, {{ deal.city }}</dd></div><div><dt>Category</dt><dd>{{ deal.business_category }}</dd></div></dl></section>
+      <section class="admin-review-card"><div class="admin-review-card-title"><div><span>Voucher rules</span><h3>Redemption limits</h3></div></div><dl class="admin-review-facts"><div><dt>Total vouchers</dt><dd>{{ deal.redemption_limit }}</dd></div><div><dt>Daily availability</dt><dd>{{ deal.daily_voucher_limit }}</dd></div><div><dt>Per customer</dt><dd>{{ 'Unlimited' if deal.max_vouchers_per_customer == 0 else deal.max_vouchers_per_customer }}</dd></div><div><dt>Submitted</dt><dd>{{ deal.created_at[:16].replace('T', ' ') }}</dd></div></dl></section>
+    </aside>
+  </div>
+</div>
+{% endblock %}

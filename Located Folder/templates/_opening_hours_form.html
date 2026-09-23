@@ -1,0 +1,16 @@
+{% set schedule_days = [('Mon', 'mon'), ('Tue', 'tue'), ('Wed', 'wed'), ('Thu', 'thu'), ('Fri', 'fri'), ('Sat', 'sat'), ('Sun', 'sun')] %}
+<div class="hours-editor" data-hours-editor>
+  <div class="hours-editor-heading"><div><span class="hours-kicker"><i class="bi bi-clock"></i> Customer-facing schedule</span><h3>When can customers visit?</h3></div><span class="hours-timezone">Local time</span></div>
+  <p class="hours-help">Set clear opening and closing times for every day. Leave a day empty if you do not trade, or mark it closed.</p>
+  <div class="hours-table" role="group" aria-label="Business opening hours">
+    <div class="hours-table-label"><span>Day</span><span>Open</span><span>Close</span></div>
+    {% for day, key in schedule_days %}
+      {% set row = opening_hours[day] %}
+      <div class="hours-row" data-hours-row>
+        <div class="hours-day"><span class="hours-day-dot"></span><strong>{{ day }}</strong><small>{{ {'Mon':'Monday','Tue':'Tuesday','Wed':'Wednesday','Thu':'Thursday','Fri':'Friday','Sat':'Saturday','Sun':'Sunday'}[day] }}</small></div>
+        <div class="hours-time-picker"><input class="hours-select" type="time" name="hours_{{ key }}_open" aria-label="{{ day }} opening time" value="{{ row.open }}" step="60" data-hours-time><select class="hours-period" name="hours_{{ key }}_open_period" aria-label="{{ day }} opening AM or PM" data-hours-period><option value="AM" {% if row.open and row.open[:2]|int < 12 %}selected{% endif %}>AM</option><option value="PM" {% if row.open and row.open[:2]|int >= 12 %}selected{% endif %}>PM</option></select></div>
+        <div class="hours-time-picker"><input class="hours-select" type="time" name="hours_{{ key }}_close" aria-label="{{ day }} closing time" value="{{ row.close }}" step="60" data-hours-time><select class="hours-period" name="hours_{{ key }}_close_period" aria-label="{{ day }} closing AM or PM" data-hours-period><option value="AM" {% if row.close and row.close[:2]|int < 12 %}selected{% endif %}>AM</option><option value="PM" {% if row.close and row.close[:2]|int >= 12 %}selected{% endif %}>PM</option></select></div>
+      </div>
+    {% endfor %}
+  </div>
+</div>

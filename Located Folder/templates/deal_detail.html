@@ -28,7 +28,7 @@
           <span><b>{{ deal.business_name }}</b><small>{{ deal.address }}, {{ deal.city }}</small></span>
           <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
         </a>
-        {% if deal.opening_hours %}<p class="deal-hours"><i class="bi bi-clock"></i><span>{{ deal.opening_hours }}</span></p>{% endif %}
+        {% if deal.opening_hours %}<div class="deal-hours-card"><div class="deal-hours-card-heading"><span><i class="bi bi-clock"></i> Opening hours</span><small>Local time</small></div><div class="deal-hours-list">{% for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}{% if opening_hours[day].display %}<div><b>{{ day }}</b><span class="{% if opening_hours[day].closed %}is-closed{% endif %}">{{ opening_hours[day].display }}</span></div>{% endif %}{% endfor %}</div></div>{% endif %}
       </div>
 
       <aside class="deal-claim-card">
