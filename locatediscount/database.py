@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS codes (
   redeemed_at TEXT,
   redeemed_by UUID REFERENCES users(id),
   device_id UUID REFERENCES consumer_devices(id),
+  claimed_area TEXT,
+  user_agent TEXT,
+  ip_address TEXT,
   quantity INTEGER NOT NULL DEFAULT 1,
   unit_price_kobo INTEGER NOT NULL DEFAULT 0
 );
@@ -224,6 +227,9 @@ ALTER TABLE deals ADD COLUMN IF NOT EXISTS approved_at TEXT;
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id);
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS unit_price_kobo INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE codes ADD COLUMN IF NOT EXISTS claimed_area TEXT;
+ALTER TABLE codes ADD COLUMN IF NOT EXISTS user_agent TEXT;
+ALTER TABLE codes ADD COLUMN IF NOT EXISTS ip_address TEXT;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_file_name TEXT;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_secure_url TEXT;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_public_id TEXT;

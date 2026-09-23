@@ -2,6 +2,7 @@
 {% block title %}Users | Locatediscount{% endblock %}
 {% block portal_eyebrow %}People directory{% endblock %}{% block portal_title %}Users{% endblock %}
 {% block portal_subtitle %}Every submitted name and phone number in one searchable view.{% endblock %}
+{% block portal_actions %}<a href="{{ url_for('admin_code_activity') }}" class="app-button"><i class="bi bi-fingerprint"></i> Code activity</a>{% endblock %}
 {% block portal_content %}
 <section class="portal-panel overflow-hidden"><form method="get" class="border-b border-slate-100 p-5"><label class="app-label">Search name, phone, or email</label><div class="mt-2 flex gap-2"><input class="app-input" name="q" value="{{ query }}" placeholder="Search users"><button class="app-button" type="submit">Search</button></div></form><div class="divide-y divide-slate-100">{% for user in users %}<article class="flex flex-wrap items-center justify-between gap-3 p-5"><div><p class="font-extrabold text-ink">{{ user.name }}</p><p class="mt-1 text-xs text-slate-500">{{ user.phone }} · {{ user.email }}</p>{% if user.area or user.business_name %}<p class="mt-1 text-xs text-slate-400">{{ user.business_name or user.area }}</p>{% endif %}</div><span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-extrabold text-slate-600">{{ user.role|title }}</span></article>{% else %}<div class="p-12 text-center text-sm text-slate-500">No users found.</div>{% endfor %}</div></section>
 {% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='users') }}

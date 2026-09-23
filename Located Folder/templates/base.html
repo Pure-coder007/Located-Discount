@@ -9,6 +9,7 @@
   <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/public-ui.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/homepage-nav.css') }}" rel="stylesheet">
   <script src="{{ url_for('static', filename='js/password-visibility.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/image-preview.js', v='20260914-2') }}" defer></script>
@@ -24,31 +25,16 @@
     </div>
   </div>
   {% block site_header %}
-  <header class="public-header">
-    <div class="public-nav-shell">
-      <a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a>
-      <button class="nav-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false" aria-label="Menu"><i class="bi bi-list" aria-hidden="true"></i></button>
-      <nav class="public-nav" id="public-main-nav" aria-label="Main navigation">
+  <header class="site-header refreshed-home-nav">
+    <div class="nav-shell">
+      <a class="site-logo" href="{{ url_for('home') }}"><img class="home-logo-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a>
+      <button class="nav-menu-toggle home-menu-toggle" type="button" aria-controls="shared-main-nav" aria-expanded="false" aria-label="Menu"><i class="bi bi-list" aria-hidden="true"></i></button>
+      <nav class="site-nav" id="shared-main-nav" aria-label="Main navigation">
         <a class="{% if request.endpoint in ('home', 'deals', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('deals') }}"><i class="bi bi-ticket-perforated"></i> Deals</a>
         <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>
         <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>
-        <div class="mobile-nav-actions">
-          {% if current_user %}
-            <a class="mobile-nav-account" href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}"><i class="bi bi-person-circle"></i> {{ current_user.name }}</a>
-          {% else %}
-            <a href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Business sign in</a>
-            <a class="mobile-nav-cta" href="{{ url_for('register') }}"><i class="bi bi-plus-circle"></i> List a business</a>
-          {% endif %}
-        </div>
+        {% if current_user %}<a class="home-nav-cta" href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}">Dashboard <i class="bi bi-arrow-up-right"></i></a>{% else %}<a href="{{ url_for('login') }}">Business sign in</a><a class="home-nav-cta" href="{{ url_for('register') }}">List a business <i class="bi bi-arrow-up-right"></i></a>{% endif %}
       </nav>
-      <div class="public-actions">
-        {% if current_user %}
-          <a class="public-account" href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}"><span>{{ current_user.name[:1]|upper }}</span><b>{{ current_user.name }}</b><i class="bi bi-arrow-up-right"></i></a>
-        {% else %}
-          <a class="public-signin" href="{{ url_for('login') }}">Business sign in</a>
-          <a class="public-cta" href="{{ url_for('register') }}">List a business <i class="bi bi-arrow-up-right"></i></a>
-        {% endif %}
-      </div>
     </div>
   </header>
   {% endblock %}
@@ -57,7 +43,7 @@
     {% block content %}{% endblock %}
   </main>
   {% block site_footer %}
-  <footer class="public-footer"><div><a href="{{ url_for('home') }}" class="public-brand" aria-label="Locatediscount home"><img class="public-brand-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount"></a><p>Find nearby vendor deals, claim a free offer voucher, and redeem directly with the business.</p></div><nav><a href="{{ url_for('deals') }}">Deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a><a href="{{ url_for('policies') }}">Policies</a><a href="{{ url_for('register') }}">For businesses</a></nav></footer>
+  <footer class="shared-home-footer"><div class="shared-footer-grid"><div><a class="site-logo footer-logo" href="{{ url_for('home') }}"><img src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a><p>Discover local business deals in your city, claim a unique code, and redeem it in-store.</p></div><div><h3>Explore</h3><a href="{{ url_for('home') }}">Browse deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a></div><div><h3>Business</h3><a href="{{ url_for('register') }}">List your business</a><a href="{{ url_for('login') }}">Business sign in</a></div><div><h3>Policies</h3><a href="{{ url_for('policy_page', policy_key='terms') }}">Terms of service</a><a href="{{ url_for('policy_page', policy_key='privacy') }}">Privacy policy</a><a href="{{ url_for('policy_page', policy_key='faq') }}">FAQ</a></div></div><div class="shared-footer-bottom"><span>© 2026 Locatediscount. All rights reserved.</span></div><div class="shared-footer-credit"><i class="bi bi-heart-fill" aria-hidden="true"></i><a class="technest-credit" href="https://technest-gules.vervel.app" target="_blank" rel="noopener noreferrer">Created with love by <strong>TECHNEST SOLUTIONZ</strong></a></div></footer>
   {% endblock %}
 </body>
 </html>

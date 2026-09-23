@@ -243,6 +243,9 @@ def create_app(test_config=None):
               created_at TEXT NOT NULL,
               redeemed_at TEXT,
               redeemed_by TEXT REFERENCES users(id),
+              claimed_area TEXT,
+              user_agent TEXT,
+              ip_address TEXT,
               quantity INTEGER NOT NULL DEFAULT 1,
               unit_price_kobo INTEGER NOT NULL DEFAULT 0
             );
@@ -394,6 +397,9 @@ def create_app(test_config=None):
             db.execute("ALTER TABLE codes ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1")
         if "unit_price_kobo" not in code_columns:
             db.execute("ALTER TABLE codes ADD COLUMN unit_price_kobo INTEGER NOT NULL DEFAULT 0")
+        for name, definition in (("claimed_area", "TEXT"), ("user_agent", "TEXT"), ("ip_address", "TEXT")):
+            if name not in code_columns:
+                db.execute(f"ALTER TABLE codes ADD COLUMN {name} {definition}")
         category_columns = {row["name"] for row in db.execute("PRAGMA table_info(categories)").fetchall()}
         for name, definition in (
             ("image_file_name", "TEXT"),
@@ -996,13 +1002,16 @@ def create_app(test_config=None):
         page = min(max(request.args.get(key, 1, type=int) or 1, 1), total_pages)
         return page, total_pages, per_page, (page - 1) * per_page
 
-    def daily_redemption_series(db, business_id=None, days=7):
+    def daily_redemption_series(db, business_id=None, deal_id=None, days=7):
         start = (utcnow() - timedelta(days=days - 1)).date()
         params = [start.isoformat()]
         condition = "created_at >= ?"
         if business_id is not None:
             condition += " AND business_id = ?"
             params.append(business_id)
+        if deal_id is not None:
+            condition += " AND deal_id = ?"
+            params.append(deal_id)
         rows = db.execute(
             f"SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS total FROM ledger_entries WHERE {condition} GROUP BY day",
             params,
@@ -1134,7 +1143,9 @@ def create_app(test_config=None):
             category = matching_category_for_query(query, categories)
             if category:
                 query = ""
-        sql = """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address
+        sql = """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address,
+                         (SELECT image_file_name FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_file_name,
+                         (SELECT image_secure_url FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_secure_url
                  FROM deals JOIN businesses ON businesses.id = deals.business_id
                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                    AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
@@ -1582,8 +1593,13 @@ def create_app(test_config=None):
                 value = code_value()
                 try:
                     cursor = db.execute(
-                        "INSERT INTO codes (deal_id, user_id, device_id, value, status, expires_at, created_at, quantity, unit_price_kobo) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
-                        (deal_id, consumer_id, device_id, value, timestamp(expires), timestamp(), quantity, deal["discount_price_kobo"]),
+                        """INSERT INTO codes
+                           (deal_id, user_id, device_id, value, status, expires_at, created_at,
+                            claimed_area, user_agent, ip_address, quantity, unit_price_kobo)
+                           VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)""",
+                        (deal_id, consumer_id, device_id, value, timestamp(expires), timestamp(),
+                         area[:80] or None, request.headers.get("User-Agent", "")[:500] or None,
+                         (request.remote_addr or "")[:64] or None, quantity, deal["discount_price_kobo"]),
                     )
                     db.execute(
                         "UPDATE device_deal_claims SET code_id = ? WHERE deal_id = ? AND device_id = ?",
@@ -1756,6 +1772,7 @@ def create_app(test_config=None):
         deal_page, deal_pages, limit, deal_offset = page_window(deal_total, "deal_page")
         deals = db.execute(
             """SELECT deals.*,
+                      (SELECT opening_hours FROM businesses WHERE id = deals.business_id) AS opening_hours,
                       CASE
                         WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
                         WHEN deals.is_approved = 0 THEN 'Pending review'
@@ -1817,6 +1834,51 @@ def create_app(test_config=None):
         return render_template(
             "business_deals.html", business=business, deals=deals, summary=summary,
             chart=daily_redemption_series(db, business["id"], days=14), fee=redemption_fee(db, business),
+        )
+
+    @app.get("/business/deals/<string:deal_id>")
+    @roles_required("business")
+    def business_deal_detail(deal_id):
+        business = business_for_user(current_user()["id"])
+        if not business:
+            abort(403)
+        db = get_db()
+        deal = db.execute(
+            """SELECT deals.*,
+                      (SELECT opening_hours FROM businesses WHERE id = deals.business_id) AS opening_hours,
+                      (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
+                      (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url,
+                      CASE
+                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
+                        WHEN deals.is_approved = 0 THEN 'Pending review'
+                        WHEN deals.expires_at <= ? THEN 'Expired'
+                        ELSE 'Closed'
+                      END AS deal_status
+               FROM deals WHERE deals.id = ? AND deals.business_id = ?""",
+            (timestamp(), timestamp(), deal_id, business["id"]),
+        ).fetchone()
+        if not deal:
+            abort(404)
+        images = db.execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
+        counts = db.execute(
+            """SELECT COUNT(*) AS claims,
+                      COALESCE(SUM(CASE WHEN status = 'redeemed' THEN 1 ELSE 0 END), 0) AS redemptions,
+                      COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active_codes,
+                      COALESCE(SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END), 0) AS expired_codes
+               FROM codes WHERE deal_id = ?""",
+            (deal_id,),
+        ).fetchone()
+        fee_total = db.execute("SELECT COALESCE(SUM(fee_charged), 0) AS total FROM ledger_entries WHERE deal_id = ?", (deal_id,)).fetchone()["total"]
+        claims = counts["claims"]
+        summary = {
+            "claims": claims, "redemptions": counts["redemptions"], "active_codes": counts["active_codes"],
+            "expired_codes": counts["expired_codes"], "conversion": round(counts["redemptions"] / claims * 100, 1) if claims else 0,
+            "fees": fee_total,
+        }
+        return render_template(
+            "business_deal_detail.html", business=business, deal=deal, images=images, summary=summary,
+            chart=daily_redemption_series(db, business["id"], deal_id=deal_id, days=14),
+            opening_hours=opening_hours_by_day(business["opening_hours"]), fee=redemption_fee(db, business),
         )
 
     @app.post("/business/opening-hours")
@@ -1984,6 +2046,10 @@ def create_app(test_config=None):
         deal = db.execute("SELECT * FROM deals WHERE id = ? AND business_id = ?", (deal_id, business["id"])).fetchone()
         if not deal:
             abort(404)
+        # Deal management links open the read-only performance workspace.
+        # Editing remains unavailable from the business deal overview.
+        if request.method == "GET":
+            return redirect(url_for("business_deal_detail", deal_id=deal_id))
         if request.method == "POST":
             title = request.form.get("title", "").strip()
             description = request.form.get("description", "").strip()
@@ -2046,7 +2112,7 @@ def create_app(test_config=None):
                         cleanup_product_images(previous_images)
                     flash("Deal updated and submitted for admin approval again.", "success")
                     return redirect(url_for("business_dashboard"))
-        selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else deal["opening_hours"] or business["opening_hours"]
+        selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else business["opening_hours"]
         return render_template("create_deal.html", business=business, categories=category_names(),
                                fee=redemption_fee(business=business), deal=deal,
                                opening_hours=opening_hours_by_day(selected_hours))
@@ -2418,7 +2484,7 @@ def create_app(test_config=None):
             where = "WHERE users.name LIKE ? OR users.phone LIKE ? OR users.email LIKE ?"
             params = [f"%{query}%"] * 3
         total = db.execute(f"SELECT COUNT(*) AS total FROM users {where}", params).fetchone()["total"]
-        page, total_pages, per_page, offset = page_window(total)
+        page, total_pages, per_page, offset = page_window(total, per_page=10)
         users = db.execute(
             f"""SELECT users.*, consumer_profiles.area, businesses.name AS business_name
                  FROM users LEFT JOIN consumer_profiles ON consumer_profiles.user_id = users.id
@@ -2428,6 +2494,61 @@ def create_app(test_config=None):
         ).fetchall()
         return render_template("admin_users.html", users=users, query=query, page=page,
                                total_pages=total_pages, total=total)
+
+    @app.get("/admin/code-activity")
+    @roles_required("admin")
+    def admin_code_activity():
+        """Read-only audit trail for every customer voucher generated."""
+        db = get_db()
+        query = " ".join(request.args.get("q", "").split())
+        status = request.args.get("status", "all")
+        if status not in {"all", "active", "redeemed", "expired"}:
+            status = "all"
+        where = ["1 = 1"]
+        params = []
+        if query:
+            like = f"%{query}%"
+            where.append("""(
+                users.name LIKE ? OR users.phone LIKE ? OR users.email LIKE ?
+                OR codes.value LIKE ? OR deals.title LIKE ? OR businesses.name LIKE ?
+                OR COALESCE(codes.claimed_area, consumer_profiles.area, '') LIKE ?
+            )""")
+            params.extend([like] * 7)
+        if status != "all":
+            where.append("codes.status = ?")
+            params.append(status)
+        where_sql = " AND ".join(where)
+        total = db.execute(
+            f"""SELECT COUNT(*) AS total FROM codes
+                JOIN users ON users.id = codes.user_id
+                JOIN deals ON deals.id = codes.deal_id
+                JOIN businesses ON businesses.id = deals.business_id
+                LEFT JOIN consumer_profiles ON consumer_profiles.user_id = users.id
+                WHERE {where_sql}""", params,
+        ).fetchone()["total"]
+        page, total_pages, per_page, offset = page_window(total, per_page=10)
+        rows = db.execute(
+            f"""SELECT codes.*, users.name AS user_name, users.phone AS user_phone,
+                       users.email AS user_email, consumer_profiles.area AS profile_area,
+                       deals.title AS deal_title, deals.category, businesses.name AS business_name,
+                       businesses.city AS business_city
+                FROM codes
+                JOIN users ON users.id = codes.user_id
+                JOIN deals ON deals.id = codes.deal_id
+                JOIN businesses ON businesses.id = deals.business_id
+                LEFT JOIN consumer_profiles ON consumer_profiles.user_id = users.id
+                WHERE {where_sql} ORDER BY codes.created_at DESC LIMIT ? OFFSET ?""",
+            (*params, per_page, offset),
+        ).fetchall()
+        summary = db.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+                      SUM(CASE WHEN status = 'redeemed' THEN 1 ELSE 0 END) AS redeemed,
+                      SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) AS expired
+               FROM codes"""
+        ).fetchone()
+        return render_template("admin_code_activity.html", rows=rows, query=query, status=status,
+                               summary=summary, page=page, total_pages=total_pages, total=total)
 
     @app.route("/admin/analytics")
     @roles_required("admin")

@@ -1,7 +1,6 @@
 {% extends 'base.html' %}
 {% block main_class %}min-h-screen p-0{% endblock %}
 {% block site_header %}{% endblock %}
-{% block site_footer %}{% endblock %}
 {% block flash_messages %}{% endblock %}
 {% block content %}
 <div class="portal-shell min-h-screen bg-[#f5f5f5] p-3 sm:p-5 lg:p-7">
@@ -22,6 +21,7 @@
           <a href="{{ url_for('admin_deals') }}" class="portal-nav {% if request.endpoint == 'admin_deals' %}portal-nav-active{% endif %}"><i class="bi bi-ticket-perforated"></i><span class="portal-nav-label">Deal approvals</span>{% if admin_attention.deals %}<b class="portal-nav-badge">{{ admin_attention.deals }}</b>{% endif %}</a>
           <a href="{{ url_for('admin_dashboard') }}#funding-queue" class="portal-nav"><i class="bi bi-wallet2"></i><span class="portal-nav-label">Top-up requests</span>{% if admin_attention.topups %}<b class="portal-nav-badge">{{ admin_attention.topups }}</b>{% endif %}</a>
           <a href="{{ url_for('admin_users') }}" class="portal-nav {% if request.endpoint == 'admin_users' %}portal-nav-active{% endif %}"><i class="bi bi-person-lines-fill"></i> Users</a>
+          <a href="{{ url_for('admin_code_activity') }}" class="portal-nav {% if request.endpoint == 'admin_code_activity' %}portal-nav-active{% endif %}"><i class="bi bi-fingerprint"></i> Code activity</a>
           <a href="{{ url_for('admin_analytics') }}" class="portal-nav {% if request.endpoint == 'admin_analytics' %}portal-nav-active{% endif %}"><i class="bi bi-bar-chart"></i> Analytics</a>
           <a href="{{ url_for('admin_categories') }}" class="portal-nav {% if request.endpoint in ('admin_categories', 'toggle_category', 'delete_category', 'edit_category') %}portal-nav-active{% endif %}"><i class="bi bi-tags"></i> Categories</a>
           <a href="{{ url_for('admin_team') }}" class="portal-nav {% if request.endpoint in ('admin_team', 'toggle_admin') %}portal-nav-active{% endif %}"><i class="bi bi-people"></i> Admin team</a>

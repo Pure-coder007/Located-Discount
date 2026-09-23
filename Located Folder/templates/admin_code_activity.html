@@ -1,0 +1,41 @@
+{% extends 'portal_base.html' %}
+{% block title %}Code activity | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Trust & visibility{% endblock %}
+{% block portal_title %}Code generation activity{% endblock %}
+{% block portal_subtitle %}A read-only audit trail of every customer voucher generated across the marketplace.{% endblock %}
+{% block portal_actions %}<span class="inline-flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><i class="bi bi-shield-check"></i> Read-only audit</span>{% endblock %}
+{% block portal_content %}
+<section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  {% for label, value, icon, tone in [('Total generated', summary.total or 0, 'bi-ticket-perforated', 'blue'), ('Active', summary.active or 0, 'bi-lightning-charge', 'green'), ('Redeemed', summary.redeemed or 0, 'bi-check2-circle', 'purple'), ('Expired', summary.expired or 0, 'bi-clock-history', 'amber')] %}
+  <article class="audit-stat audit-stat-{{ tone }}"><span class="audit-stat-icon"><i class="bi {{ icon }}"></i></span><div><p>{{ label }}</p><strong>{{ value }}</strong></div></article>
+  {% endfor %}
+</section>
+
+<section class="portal-panel mt-5 overflow-hidden">
+  <div class="border-b border-slate-100 bg-white p-5 sm:p-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div><p class="text-xs font-extrabold uppercase tracking-[.16em] text-pine">Customer traceability</p><h2 class="mt-1 text-xl font-extrabold text-ink">Generated voucher records</h2><p class="mt-1 max-w-2xl text-sm text-slate-500">Review who generated a code, where they were, what they claimed, and the device context recorded at generation time.</p></div>
+      <form method="get" class="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_10rem_auto] lg:min-w-[38rem]">
+        <label class="sr-only" for="audit-search">Search code activity</label><input id="audit-search" class="app-input" name="q" value="{{ query }}" placeholder="Search person, code, deal, area…">
+        <label class="sr-only" for="audit-status">Filter status</label><select id="audit-status" class="app-input" name="status"><option value="all" {% if status == 'all' %}selected{% endif %}>All statuses</option><option value="active" {% if status == 'active' %}selected{% endif %}>Active</option><option value="redeemed" {% if status == 'redeemed' %}selected{% endif %}>Redeemed</option><option value="expired" {% if status == 'expired' %}selected{% endif %}>Expired</option></select>
+        <button class="app-button" type="submit"><i class="bi bi-search"></i> Filter</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="hidden overflow-x-auto lg:block">
+    <table class="audit-table w-full text-left"><thead><tr><th>Customer</th><th>Code & deal</th><th>Location</th><th>Generated</th><th>Device context</th><th>Status</th></tr></thead>
+      <tbody>{% for row in rows %}<tr>
+        <td><strong>{{ row.user_name }}</strong><small>{{ row.user_phone }}<br>{{ row.user_email }}</small></td>
+        <td><code>{{ row.value }}</code><small>{{ row.deal_title }}<br>{{ row.business_name }} · {{ row.category }}</small></td>
+        <td><span class="audit-location"><i class="bi bi-geo-alt"></i>{{ row.claimed_area or row.profile_area or 'Not provided' }}</span><small>{{ row.business_city }}</small></td>
+        <td><strong>{{ row.created_at|replace('T', ' ') }}</strong><small>Expires {{ row.expires_at|replace('T', ' ') }}</small></td>
+        <td><small class="audit-agent">{{ row.user_agent or 'Not recorded' }}</small><small>IP: {{ row.ip_address or 'Not recorded' }}</small></td>
+        <td><span class="audit-status audit-status-{{ row.status }}">{{ row.status|title }}</span>{% if row.redeemed_at %}<small>Redeemed {{ row.redeemed_at|replace('T', ' ') }}</small>{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="6" class="p-12 text-center text-sm text-slate-500">No generated codes match this filter.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="space-y-3 p-4 lg:hidden">{% for row in rows %}<article class="audit-mobile-card"><div class="flex items-start justify-between gap-3"><div><p class="font-extrabold text-ink">{{ row.user_name }}</p><p class="text-xs text-slate-500">{{ row.user_phone }}</p></div><span class="audit-status audit-status-{{ row.status }}">{{ row.status|title }}</span></div><div class="mt-4 grid gap-3 text-xs sm:grid-cols-2"><div><span class="audit-label">Code / deal</span><code>{{ row.value }}</code><p class="mt-1 text-slate-600">{{ row.deal_title }}</p></div><div><span class="audit-label">Location</span><p>{{ row.claimed_area or row.profile_area or 'Not provided' }}</p><p class="text-slate-400">{{ row.business_city }}</p></div><div><span class="audit-label">Generated</span><p>{{ row.created_at|replace('T', ' ') }}</p></div><div><span class="audit-label">IP address</span><p>{{ row.ip_address or 'Not recorded' }}</p></div></div><div class="mt-3 border-t border-slate-100 pt-3"><span class="audit-label">User agent</span><p class="break-words text-[11px] leading-5 text-slate-500">{{ row.user_agent or 'Not recorded' }}</p></div></article>{% else %}<div class="p-8 text-center text-sm text-slate-500">No generated codes match this filter.</div>{% endfor %}</div>
+</section>
+{% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='code records') }}
+{% endblock %}
