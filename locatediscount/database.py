@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS deals (
   daily_voucher_limit INTEGER NOT NULL DEFAULT 5,
   max_vouchers_per_customer INTEGER NOT NULL DEFAULT 1,
   is_approved INTEGER NOT NULL DEFAULT 0,
+  review_status TEXT NOT NULL DEFAULT 'pending',
+  review_reason TEXT,
+  redemption_fee INTEGER,
+  deleted_at TEXT,
   approved_at TEXT,
   approved_by UUID REFERENCES users(id),
   created_at TEXT NOT NULL
@@ -177,6 +181,15 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
   details TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS business_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'info',
+  created_at TEXT NOT NULL,
+  read_at TEXT
+);
 CREATE TABLE IF NOT EXISTS categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -225,6 +238,20 @@ ALTER TABLE deals ADD COLUMN IF NOT EXISTS max_vouchers_per_customer INTEGER NOT
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_approved INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS approved_at TEXT;
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS review_reason TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS redemption_fee INTEGER;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+CREATE TABLE IF NOT EXISTS business_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'info',
+  created_at TEXT NOT NULL,
+  read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS business_notifications_idx ON business_notifications(business_id, created_at);
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS unit_price_kobo INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS claimed_area TEXT;

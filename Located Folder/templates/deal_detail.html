@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}{{ deal.title }} | Locatediscount{% endblock %}
+{% block extra_head %}<script src="{{ url_for('static', filename='js/deal-detail.js', v='20260925-2') }}" defer></script>{% endblock %}
 {% block content %}
 <div class="deal-page">
   <a href="{{ url_for('deals') }}" class="deal-back"><i class="bi bi-arrow-left"></i> All deals</a>
@@ -7,22 +8,25 @@
   <article class="deal-showcase">
     <div class="deal-showcase-media">
       {% if images %}
-        <img src="{{ product_image_url(images[0]) }}" alt="{{ deal.title }}">
+        <img class="deal-main-image" data-gallery-image="{{ product_image_url(images[0]) if images else '' }}" src="{{ product_image_url(images[0]) }}" alt="{{ deal.title }}">
       {% else %}
         <i class="bi bi-ticket-perforated" aria-hidden="true"></i>
       {% endif %}
       <span class="deal-category">{{ deal.category }}</span>
+      {% if images|length > 1 %}<div class="deal-gallery-thumbs">{% for image in images %}<button type="button" class="deal-gallery-thumb {% if loop.first %}is-selected{% endif %}" data-gallery-image="{{ product_image_url(image) }}" aria-label="Show image {{ loop.index }}"><img src="{{ product_image_url(image) }}" alt=""></button>{% endfor %}</div>{% endif %}
     </div>
 
     <div class="deal-showcase-content">
       <div class="deal-main-copy">
-        <p class="deal-eyebrow">Limited local offer</p>
+        {% if daily_remaining <= 3 %}<p class="deal-eyebrow">Limited availability today</p>{% endif %}
         <h1>{{ deal.title }}</h1>
-        <p class="deal-description">{{ deal.description }}</p>
         <div class="deal-price" aria-label="Deal price">
           {% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}
           {% if deal.discount_price_kobo %}<strong>₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</strong>{% endif %}
         </div>
+        <p class="deal-description">{{ deal.description }}</p>
+        <div class="deal-countdown" data-countdown="{{ deal.expires_at }}"><i class="bi bi-clock"></i> <span>Ends {{ deal.expires_at[:16].replace('T', ' ') }}</span></div>
+        <p class="deal-availability">{{ daily_remaining }} of {{ daily_capacity }} daily vouchers remaining</p>
         <a class="deal-vendor" href="{{ url_for('vendor_detail', business_id=deal.business_id) }}">
           <span><i class="bi bi-shop"></i></span>
           <span><b>{{ deal.business_name }}</b><small>{{ deal.address }}, {{ deal.city }}</small></span>
@@ -49,4 +53,33 @@
     <details><summary><i class="bi bi-info-circle"></i> Offer terms</summary><p>{{ deal.terms }}</p></details>
   </div>
 </div>
+<div class="deal-lightbox" data-lightbox hidden role="dialog" aria-modal="true" aria-label="Expanded deal image"><button type="button" class="deal-lightbox-close" data-lightbox-close aria-label="Close image"><i class="bi bi-x-lg"></i></button><img data-lightbox-image src="" alt="{{ deal.title }}"></div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const main = document.querySelector('.deal-showcase-media > img');
+  const lightbox = document.querySelector('[data-lightbox]');
+  const lightboxImage = document.querySelector('[data-lightbox-image]');
+  const openImage = (url) => { if (!url || !lightbox) return; lightboxImage.src = url; lightbox.hidden = false; document.body.classList.add('deal-lightbox-open'); };
+  const closeImage = () => { if (!lightbox) return; lightbox.hidden = true; lightboxImage.src = ''; document.body.classList.remove('deal-lightbox-open'); };
+  document.querySelectorAll('[data-gallery-image]').forEach(button => button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const url = button.dataset.galleryImage;
+    if (button === main) { openImage(url); return; }
+    if (main) main.src = url;
+    document.querySelectorAll('.deal-gallery-thumb').forEach(item => item.classList.remove('is-selected'));
+    button.classList.add('is-selected');
+    openImage(url);
+  }));
+  document.querySelector('[data-lightbox-close]')?.addEventListener('click', closeImage);
+  lightbox?.addEventListener('click', event => { if (event.target === lightbox) closeImage(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeImage(); });
+  const timer = document.querySelector('[data-countdown]');
+  if (timer) {
+    const target = new Date(timer.dataset.countdown).getTime();
+    const tick = () => { const left = Math.max(0, target - Date.now()); const h = Math.floor(left / 3600000); const m = Math.floor(left % 3600000 / 60000); const s = Math.floor(left % 60000 / 1000); timer.querySelector('span').textContent = left ? `Ends in ${h}h ${m}m ${s}s` : 'Deal ended'; };
+    tick(); setInterval(tick, 1000);
+  }
+});
+</script>
 {% endblock %}

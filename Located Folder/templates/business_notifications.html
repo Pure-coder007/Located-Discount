@@ -1,0 +1,23 @@
+{% extends 'portal_base.html' %}
+{% block title %}Notifications | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Business updates{% endblock %}
+{% block portal_title %}Notifications{% endblock %}
+{% block portal_subtitle %}Important updates about your business, deals, fees, and account activity.{% endblock %}
+{% block portal_content %}
+<div class="notifications-page">
+  <section class="notifications-hero"><div class="notifications-hero-copy"><span class="notifications-hero-kicker"><i class="bi bi-shield-check"></i> Business command centre</span><h2>Stay in the loop.</h2><p>Every important update about your offers, approvals, corrections, fees, and account activity is collected here.</p></div><div class="notifications-hero-mark"><i class="bi bi-bell-fill"></i><strong>{{ total }}</strong><small>Total updates</small></div></section>
+  <section class="notifications-list-card">
+  <div class="notifications-list-heading"><div><span>Activity feed</span><h2>Your notifications</h2></div><small>{{ total }} total update{% if total != 1 %}s{% endif %}</small></div>
+  <div class="divide-y divide-slate-100">
+    {% for notification in notifications %}
+    <article class="notification-row {% if not notification.read_at %}is-unread{% endif %}">
+      <span class="notification-type notification-type-{{ notification.kind }}"><i class="bi {% if notification.kind == 'danger' %}bi-x-circle-fill{% elif notification.kind == 'warning' %}bi-exclamation-triangle-fill{% elif notification.kind == 'success' %}bi-check-circle-fill{% else %}bi-info-circle-fill{% endif %}"></i></span>
+      <div class="notification-row-content"><div class="notification-row-heading"><h3>{{ notification.title }}</h3>{% if not notification.read_at %}<span class="notification-new">NEW</span>{% endif %}</div><p>{{ notification.message }}</p><time>{{ notification.created_at[:16].replace('T', ' ') }}</time></div>
+    </article>
+    {% else %}<div class="notifications-empty"><span><i class="bi bi-bell-slash"></i></span><h3>No notifications yet</h3><p>Updates about your deals will appear here.</p></div>{% endfor %}
+  </div>
+</section>
+  </section>
+</div>
+{% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='notifications') }}
+{% endblock %}

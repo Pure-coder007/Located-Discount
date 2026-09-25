@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!preview) return;
     let selectedFiles = [];
     const counter = document.getElementById("deal-image-limit");
+    const addMore = document.getElementById("deal-add-image");
 
     const syncInputFiles = () => {
       const transfer = new DataTransfer();
@@ -64,6 +65,11 @@ document.addEventListener("DOMContentLoaded", () => {
         counter.textContent = `${selectedFiles.length} of 5 images selected`;
         counter.classList.remove("is-error");
       }
+      if (addMore) {
+        addMore.disabled = selectedFiles.length >= 5;
+        addMore.setAttribute("aria-disabled", addMore.disabled ? "true" : "false");
+        addMore.innerHTML = addMore.disabled ? '<i class="bi bi-check2"></i> 5 images complete' : '<i class="bi bi-plus-lg"></i> Add more images';
+      }
     };
 
     input.addEventListener("change", () => {
@@ -76,6 +82,9 @@ document.addEventListener("DOMContentLoaded", () => {
         counter.textContent = "Maximum 5 images. Remove an image before adding another.";
         counter.classList.add("is-error");
       }
+    });
+    addMore?.addEventListener("click", () => {
+      if (selectedFiles.length < 5) input.click();
     });
   });
 });

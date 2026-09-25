@@ -156,6 +156,7 @@ def create_app(test_config=None):
             )
             # Existing live deals remain live; every newly submitted deal is reviewed.
             db.execute("UPDATE deals SET is_approved = 1 WHERE is_active = 1 AND is_approved = 0")
+            db.execute("UPDATE deals SET review_status = CASE WHEN is_approved = 1 THEN 'approved' ELSE 'pending' END WHERE review_status IS NULL OR review_status = '' OR (review_status = 'pending' AND is_approved = 1)")
             db.execute(
                 """INSERT INTO platform_settings (setting_key, integer_value, updated_at)
                    VALUES (?, ?, ?) ON CONFLICT (setting_key) DO NOTHING""",
@@ -229,6 +230,10 @@ def create_app(test_config=None):
               daily_voucher_limit INTEGER NOT NULL DEFAULT 5,
               max_vouchers_per_customer INTEGER NOT NULL DEFAULT 1,
               is_approved INTEGER NOT NULL DEFAULT 0,
+              review_status TEXT NOT NULL DEFAULT 'pending',
+              review_reason TEXT,
+              redemption_fee INTEGER,
+              deleted_at TEXT,
               approved_at TEXT,
               approved_by TEXT REFERENCES users(id),
               created_at TEXT NOT NULL
@@ -325,6 +330,15 @@ def create_app(test_config=None):
               details TEXT NOT NULL,
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS business_notifications (
+              id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
+              business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+              title TEXT NOT NULL,
+              message TEXT NOT NULL,
+              kind TEXT NOT NULL DEFAULT 'info',
+              created_at TEXT NOT NULL,
+              read_at TEXT
+            );
             CREATE TABLE IF NOT EXISTS categories (
               id TEXT PRIMARY KEY NOT NULL DEFAULT {SQLITE_UUID_DEFAULT},
               name TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -357,6 +371,7 @@ def create_app(test_config=None):
             CREATE INDEX IF NOT EXISTS products_business_active_idx ON products(business_id, is_active);
             CREATE INDEX IF NOT EXISTS product_images_product_idx ON product_images(product_id, sort_order);
             CREATE INDEX IF NOT EXISTS deal_images_deal_idx ON deal_images(deal_id, sort_order);
+            CREATE INDEX IF NOT EXISTS business_notifications_idx ON business_notifications(business_id, created_at);
             CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_tokens(user_id, expires_at);
             INSERT OR IGNORE INTO platform_settings (setting_key, integer_value, updated_at)
               VALUES ('redemption_fee', 500, datetime('now'));
@@ -381,12 +396,17 @@ def create_app(test_config=None):
             ("daily_voucher_limit", "INTEGER NOT NULL DEFAULT 5"),
             ("max_vouchers_per_customer", "INTEGER NOT NULL DEFAULT 1"),
             ("is_approved", "INTEGER NOT NULL DEFAULT 0"),
+            ("review_status", "TEXT NOT NULL DEFAULT 'pending'"),
+            ("review_reason", "TEXT"),
+            ("redemption_fee", "INTEGER"),
+            ("deleted_at", "TEXT"),
             ("approved_at", "TEXT"),
             ("approved_by", "TEXT REFERENCES users(id)"),
         ):
             if name not in deal_columns:
                 db.execute(f"ALTER TABLE deals ADD COLUMN {name} {definition}")
         db.execute("UPDATE deals SET is_approved = 1 WHERE is_active = 1 AND is_approved = 0")
+        db.execute("UPDATE deals SET review_status = CASE WHEN is_approved = 1 THEN 'approved' ELSE 'pending' END WHERE review_status IS NULL OR review_status = ''")
         user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
         if "created_by_admin" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN created_by_admin TEXT REFERENCES users(id)")
@@ -577,6 +597,12 @@ def create_app(test_config=None):
         user = current_user()
         business = business_for_user(user["id"]) if user and user["role"] == "business" else None
         admin_attention = {"businesses": 0, "deals": 0, "topups": 0, "total": 0}
+        business_notification_count = 0
+        if business:
+            business_notification_count = get_db().execute(
+                "SELECT COUNT(*) AS total FROM business_notifications WHERE business_id = ? AND read_at IS NULL",
+                (business["id"],),
+            ).fetchone()["total"]
         if user and user["role"] == "admin":
             admin_attention = get_db().execute(
                 """SELECT
@@ -591,6 +617,7 @@ def create_app(test_config=None):
             "current_user": user,
             "current_business": business,
             "admin_attention": admin_attention,
+            "business_notification_count": business_notification_count,
             "csrf_token": session.get("csrf_token"),
             "pagination_url": pagination_url,
             "product_image_url": product_image_url,
@@ -755,9 +782,9 @@ def create_app(test_config=None):
         return int(amount * 100)
 
     def daily_voucher_capacity(deal, day=None):
-        """Return a deterministic, changing daily allocation for an offer."""
+        """Return an automatic daily allocation that resets at UTC midnight."""
         day = day or utcnow().date()
-        base = max(1, deal["daily_voucher_limit"])
+        base = max(1, min(10, math.ceil(deal["redemption_limit"] / 10)))
         variation = ((int(hashlib.sha256(str(deal["id"]).encode()).hexdigest()[:8], 16) + day.toordinal()) % 3) - 1
         return max(1, base + variation)
 
@@ -1027,6 +1054,12 @@ def create_app(test_config=None):
         get_db().execute(
             "INSERT INTO admin_audit_logs (admin_id, action, target_type, target_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (current_user()["id"], action, target_type, target_id, details[:1000], timestamp()),
+        )
+
+    def notify_business(business_id, title, message, kind="info"):
+        get_db().execute(
+            "INSERT INTO business_notifications (business_id, title, message, kind, created_at) VALUES (?, ?, ?, ?, ?)",
+            (business_id, title[:160], message[:2000], kind, timestamp()),
         )
 
     def reset_token_hash(token):
@@ -1314,14 +1347,14 @@ def create_app(test_config=None):
         ).fetchall()
         for row in cities:
             add_suggestion(row["city"], "area", row["city"], "City / area")
-        deals = db.execute(
+        all_deals = db.execute(
             """SELECT DISTINCT deals.title FROM deals JOIN businesses ON businesses.id = deals.business_id
                WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0
                  AND deals.title LIKE ? ORDER BY LOWER(deals.title) LIMIT 4""",
             (timestamp(), like_query),
         ).fetchall()
-        for row in deals:
+        for row in all_deals:
             add_suggestion(row["title"], "search", row["title"], "Deal")
         return jsonify({"suggestions": suggestions})
 
@@ -1491,8 +1524,10 @@ def create_app(test_config=None):
             "SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)
         ).fetchone())
         images = get_db().execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
+        daily_remaining = daily_voucher_remaining(get_db(), deal)
         return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite,
-                               images=images, daily_remaining=daily_voucher_remaining(get_db(), deal),
+                               images=images, daily_remaining=daily_remaining,
+                               daily_capacity=daily_voucher_capacity(deal),
                                opening_hours=opening_hours_by_day(deal["opening_hours"]))
 
     @app.route("/consumer")
@@ -1768,9 +1803,9 @@ def create_app(test_config=None):
         if not business:
             abort(403)
         db = get_db()
-        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ?", (business["id"],)).fetchone()["total"]
+        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND deleted_at IS NULL", (business["id"],)).fetchone()["total"]
         deal_page, deal_pages, limit, deal_offset = page_window(deal_total, "deal_page")
-        deals = db.execute(
+        all_deals = db.execute(
             """SELECT deals.*,
                       (SELECT opening_hours FROM businesses WHERE id = deals.business_id) AS opening_hours,
                       CASE
@@ -1779,14 +1814,14 @@ def create_app(test_config=None):
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
                       END AS deal_status
-               FROM deals WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+               FROM deals WHERE business_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?""",
             (timestamp(), timestamp(), business["id"], limit, deal_offset),
         ).fetchall()
         ledger_total = db.execute("SELECT COUNT(*) total FROM ledger_entries WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         activity_page, activity_pages, limit, activity_offset = page_window(ledger_total, "activity_page")
         ledger = db.execute("SELECT ledger_entries.*, codes.value code, deals.title FROM ledger_entries JOIN codes ON codes.id = ledger_entries.code_id JOIN deals ON deals.id = ledger_entries.deal_id WHERE ledger_entries.business_id = ? ORDER BY ledger_entries.created_at DESC LIMIT ? OFFSET ?", (business["id"], limit, activity_offset)).fetchall()
-        active_deal_count = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND expires_at > ?", (business["id"], timestamp())).fetchone()["total"]
-        return render_template("business_dashboard.html", business=business, deals=deals, ledger=ledger,
+        active_deal_count = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND deleted_at IS NULL AND is_active = 1 AND is_approved = 1 AND expires_at > ?", (business["id"], timestamp())).fetchone()["total"]
+        return render_template("business_dashboard.html", business=business, deals=all_deals, ledger=ledger,
                                fee=redemption_fee(db, business), active_deal_count=active_deal_count,
                                deal_page=deal_page, deal_pages=deal_pages, activity_page=activity_page,
                                activity_pages=activity_pages, chart=daily_redemption_series(db, business["id"]),
@@ -1800,7 +1835,7 @@ def create_app(test_config=None):
             abort(403)
         db = get_db()
         now = timestamp()
-        deals = db.execute(
+        all_deals = db.execute(
             """SELECT deals.*,
                       COUNT(codes.id) AS claims,
                       COALESCE(SUM(CASE WHEN codes.status = 'redeemed' THEN 1 ELSE 0 END), 0) AS redemptions,
@@ -1813,18 +1848,21 @@ def create_app(test_config=None):
                         ELSE 'Closed'
                       END AS deal_status
                FROM deals LEFT JOIN codes ON codes.deal_id = deals.id
-               WHERE deals.business_id = ?
+               WHERE deals.business_id = ? AND deals.deleted_at IS NULL
                GROUP BY deals.id
                ORDER BY deals.created_at DESC""",
             (now, now, business["id"]),
         ).fetchall()
+        deal_total = len(all_deals)
+        deal_page, deal_pages, per_page, deal_offset = page_window(deal_total, "deal_page", per_page=5)
+        deals = all_deals[deal_offset:deal_offset + per_page]
         summary = {
-            "total": len(deals),
-            "live": sum(1 for deal in deals if deal["deal_status"] == "Live"),
-            "pending": sum(1 for deal in deals if deal["deal_status"] == "Pending review"),
-            "closed": sum(1 for deal in deals if deal["deal_status"] in {"Closed", "Expired"}),
-            "claims": sum(deal["claims"] for deal in deals),
-            "redemptions": sum(deal["redemptions"] for deal in deals),
+            "total": deal_total,
+            "live": sum(1 for deal in all_deals if deal["deal_status"] == "Live"),
+            "pending": sum(1 for deal in all_deals if deal["deal_status"] == "Pending review"),
+            "closed": sum(1 for deal in all_deals if deal["deal_status"] in {"Closed", "Expired"}),
+            "claims": sum(deal["claims"] for deal in all_deals),
+            "redemptions": sum(deal["redemptions"] for deal in all_deals),
         }
         summary["conversion"] = round(summary["redemptions"] / summary["claims"] * 100, 1) if summary["claims"] else 0
         summary["fees"] = db.execute(
@@ -1834,7 +1872,24 @@ def create_app(test_config=None):
         return render_template(
             "business_deals.html", business=business, deals=deals, summary=summary,
             chart=daily_redemption_series(db, business["id"], days=14), fee=redemption_fee(db, business),
+            deal_page=deal_page, deal_pages=deal_pages, deal_total=deal_total,
         )
+
+    @app.get("/business/notifications")
+    @roles_required("business")
+    def business_notifications():
+        business = business_for_user(current_user()["id"])
+        db = get_db()
+        total = db.execute("SELECT COUNT(*) AS total FROM business_notifications WHERE business_id = ?", (business["id"],)).fetchone()["total"]
+        page, total_pages, per_page, offset = page_window(total, "page", per_page=5)
+        notifications = db.execute(
+            """SELECT * FROM business_notifications
+               WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+            (business["id"], per_page, offset),
+        ).fetchall()
+        db.execute("UPDATE business_notifications SET read_at = COALESCE(read_at, ?) WHERE business_id = ?", (timestamp(), business["id"]))
+        return render_template("business_notifications.html", business=business, notifications=notifications,
+                               page=page, total_pages=total_pages, total=total)
 
     @app.get("/business/deals/<string:deal_id>")
     @roles_required("business")
@@ -1998,8 +2053,7 @@ def create_app(test_config=None):
             opening_hours = opening_hours_from_form(request.form, business["opening_hours"])
             try: limit = int(limit)
             except ValueError: limit = 0
-            try: daily_limit = int(request.form.get("daily_voucher_limit", "5"))
-            except ValueError: daily_limit = 0
+            daily_limit = max(1, min(10, math.ceil(limit / 10))) if limit else 0
             raw_customer_limit = request.form.get("max_vouchers_per_customer", "1")
             try: customer_limit = 0 if raw_customer_limit == "unlimited" else int(raw_customer_limit)
             except ValueError: customer_limit = -1
@@ -2008,7 +2062,7 @@ def create_app(test_config=None):
             try: expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
             except ValueError: expires_at = None
             if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow()):
-                flash("Check the prices, voucher limits, opening hours, expiry, and deal details. Use at most seven opening-hours lines of up to 80 characters each.", "danger")
+                flash("Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
                 db = get_db()
                 images = []
@@ -2016,7 +2070,7 @@ def create_app(test_config=None):
                     images = save_deal_images(request.files.getlist("images"), business["id"])
                     db.execute("BEGIN IMMEDIATE")
                     cursor = db.execute(
-                        "INSERT INTO deals (business_id, title, description, category, terms, expires_at, redemption_limit, regular_price_kobo, discount_price_kobo, daily_voucher_limit, max_vouchers_per_customer, is_active, is_approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
+                        "INSERT INTO deals (business_id, title, description, category, terms, expires_at, redemption_limit, regular_price_kobo, discount_price_kobo, daily_voucher_limit, max_vouchers_per_customer, is_active, is_approved, review_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'pending', ?)",
                         (business["id"], title, description, category, terms, timestamp(expires_at), limit,
                          regular_price_kobo, discount_price_kobo, daily_limit, customer_limit, timestamp()),
                     )
@@ -2033,6 +2087,7 @@ def create_app(test_config=None):
                     cleanup_product_images(images)
                     flash(str(error) or "Could not save your deal.", "danger")
                 else:
+                    notify_business(business["id"], "Deal submitted for review", f"Your deal '{title}' was submitted and is waiting for administrator review.", "info")
                     flash("Deal submitted for admin approval. It can go live after approval and wallet funding.", "success")
                     return redirect(url_for("business_dashboard"))
         selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else request.form.get("opening_hours", business["opening_hours"])
@@ -2046,10 +2101,10 @@ def create_app(test_config=None):
         deal = db.execute("SELECT * FROM deals WHERE id = ? AND business_id = ?", (deal_id, business["id"])).fetchone()
         if not deal:
             abort(404)
-        # Deal management links open the read-only performance workspace.
-        # Editing remains unavailable from the business deal overview.
         if request.method == "GET":
-            return redirect(url_for("business_deal_detail", deal_id=deal_id))
+            return render_template("create_deal.html", business=business, categories=category_names(),
+                                   fee=redemption_fee(business=business), deal=deal,
+                                   opening_hours=opening_hours_by_day(deal["opening_hours"] if "opening_hours" in deal.keys() else business["opening_hours"]))
         if request.method == "POST":
             title = request.form.get("title", "").strip()
             description = request.form.get("description", "").strip()
@@ -2059,7 +2114,7 @@ def create_app(test_config=None):
             opening_hours = normalize_opening_hours(request.form.get("opening_hours", business["opening_hours"]))
             try:
                 limit = int(request.form.get("redemption_limit", ""))
-                daily_limit = int(request.form.get("daily_voucher_limit", "5"))
+                daily_limit = max(1, min(10, math.ceil(limit / 10)))
                 raw_customer_limit = request.form.get("max_vouchers_per_customer", "1")
                 customer_limit = 0 if raw_customer_limit == "unlimited" else int(raw_customer_limit)
             except ValueError:
@@ -2071,12 +2126,12 @@ def create_app(test_config=None):
             except ValueError:
                 expires_at = None
             valid = (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None
-                     and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000
+                     and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 10
                      and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None
                      and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo
                      and expires_at and expires_at > utcnow())
             if not valid:
-                flash("Check the prices, voucher limits, opening hours, expiry, and deal details. Use at most seven opening-hours lines of up to 80 characters each.", "danger")
+                flash("Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
                 images = []
                 previous_images = []
@@ -2089,7 +2144,7 @@ def create_app(test_config=None):
                     db.execute(
                         """UPDATE deals SET title = ?, description = ?, category = ?, terms = ?, expires_at = ?,
                            redemption_limit = ?, regular_price_kobo = ?, discount_price_kobo = ?, daily_voucher_limit = ?,
-                           max_vouchers_per_customer = ?, is_active = 0, is_approved = 0, approved_at = NULL, approved_by = NULL
+                           max_vouchers_per_customer = ?, is_active = 0, is_approved = 0, review_status = 'pending', review_reason = NULL, approved_at = NULL, approved_by = NULL
                            WHERE id = ?""",
                         (title, description, category, terms, timestamp(expires_at), limit, regular_price_kobo,
                          discount_price_kobo, daily_limit, customer_limit, deal_id),
@@ -2110,12 +2165,51 @@ def create_app(test_config=None):
                 else:
                     if previous_images:
                         cleanup_product_images(previous_images)
+                    notify_business(business["id"], "Deal resubmitted", f"Your changes to '{title}' were saved and the deal was sent back for administrator review.", "info")
                     flash("Deal updated and submitted for admin approval again.", "success")
                     return redirect(url_for("business_dashboard"))
         selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else business["opening_hours"]
         return render_template("create_deal.html", business=business, categories=category_names(),
                                fee=redemption_fee(business=business), deal=deal,
                                opening_hours=opening_hours_by_day(selected_hours))
+
+    @app.post("/business/deals/<string:deal_id>/archive")
+    @approved_business_required
+    def archive_business_deal(deal_id):
+        business = business_for_user(current_user()["id"])
+        db = get_db()
+        deal = db.execute("SELECT id, title FROM deals WHERE id = ? AND business_id = ?", (deal_id, business["id"])).fetchone()
+        if not deal:
+            abort(404)
+        db.execute("UPDATE deals SET is_active = 0 WHERE id = ?", (deal_id,))
+        notify_business(business["id"], "Deal archived", f"Your deal '{deal['title']}' was archived. Its voucher and financial history was kept.", "info")
+        flash("Deal archived. Its voucher and financial history was kept.", "success")
+        return redirect(url_for("business_deals"))
+
+    @app.post("/business/deals/<string:deal_id>/delete")
+    @approved_business_required
+    def delete_business_deal(deal_id):
+        business = business_for_user(current_user()["id"])
+        db = get_db()
+        deal = db.execute("SELECT id, title FROM deals WHERE id = ? AND business_id = ?", (deal_id, business["id"])).fetchone()
+        if not deal:
+            abort(404)
+        activity = db.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM codes WHERE deal_id = ?) AS claims,
+                 (SELECT COUNT(*) FROM ledger_entries WHERE deal_id = ?) AS redemptions""",
+            (deal_id, deal_id),
+        ).fetchone()
+        if activity["claims"] or activity["redemptions"]:
+            db.execute("UPDATE deals SET is_active = 0, deleted_at = ? WHERE id = ?", (timestamp(), deal_id))
+            notify_business(business["id"], "Deal removed from catalogue", f"Your deal '{deal['title']}' was removed from the catalogue. Its voucher and financial history was preserved.", "info")
+            flash("Deal removed from your catalogue. Its voucher and financial history was preserved.", "success")
+            return redirect(url_for("business_deals"))
+        db.execute("DELETE FROM favorites WHERE deal_id = ?", (deal_id,))
+        db.execute("DELETE FROM deals WHERE id = ?", (deal_id,))
+        notify_business(business["id"], "Deal deleted", f"Your deal '{deal['title']}' was permanently deleted.", "info")
+        flash("Deal deleted.", "success")
+        return redirect(url_for("business_deals"))
 
     @app.route("/business/wallet", methods=("GET", "POST"))
     @approved_business_required
@@ -2243,10 +2337,11 @@ def create_app(test_config=None):
             db = get_db()
             try:
                 voucher = db.execute(
-                    "SELECT codes.quantity, codes.unit_price_kobo FROM codes WHERE codes.value = ?",
+                    """SELECT codes.quantity, codes.unit_price_kobo, deals.redemption_fee AS deal_fee
+                       FROM codes JOIN deals ON deals.id = codes.deal_id WHERE codes.value = ?""",
                     (value,),
                 ).fetchone()
-                fee = redemption_fee(db, business)
+                fee = voucher["deal_fee"] if voucher and voucher["deal_fee"] is not None else redemption_fee(db, business)
                 balance_after = redeem_code(db, business, value, current_user()["id"], timestamp(), fee)
                 send_low_wallet_alert(business["id"], balance_after)
                 total_due = voucher["quantity"] * voucher["unit_price_kobo"] // 100 if voucher else 0
@@ -2404,7 +2499,7 @@ def create_app(test_config=None):
             status = "pending"
         where = ""
         if status == "pending":
-            where = "WHERE deals.is_approved = 0"
+            where = "WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved'))"
         elif status == "live":
             where = "WHERE deals.is_approved = 1 AND deals.is_active = 1"
         total = db.execute(
@@ -2462,16 +2557,71 @@ def create_app(test_config=None):
             flash("This deal has already been approved.", "info")
         elif not deal["business_approved"] or deal["is_blocked"]:
             flash("Approve the business before approving its deals.", "danger")
-        elif deal["wallet_balance"] < redemption_fee(db):
-            flash(f"This business needs at least ₦{redemption_fee(db):,} in its wallet before the deal can go live.", "danger")
         else:
+            required_fee = deal["redemption_fee"] if deal["redemption_fee"] is not None else redemption_fee(db)
+            if deal["wallet_balance"] < required_fee:
+                flash(f"This business needs at least ₦{required_fee:,} in its wallet before the deal can go live.", "danger")
+                return redirect(url_for("admin_deals"))
             db.execute(
-                "UPDATE deals SET is_approved = 1, is_active = 1, approved_at = ?, approved_by = ? WHERE id = ?",
+                "UPDATE deals SET is_approved = 1, is_active = 1, review_status = 'approved', review_reason = NULL, approved_at = ?, approved_by = ? WHERE id = ?",
                 (timestamp(), current_user()["id"], deal_id),
             )
+            notify_business(deal["business_id"], "Deal approved", f"Your deal '{deal['title']}' was approved and is now live.", "success")
             record_admin_action("approve_deal", "deal", deal_id, deal["title"])
             flash("Deal approved and live.", "success")
         return redirect(url_for("admin_deals"))
+
+    @app.post("/admin/deals/<string:deal_id>/review")
+    @roles_required("admin")
+    def review_deal(deal_id):
+        action = request.form.get("action", "")
+        reason = " ".join(request.form.get("reason", "").split())[:1000]
+        if action not in {"changes_requested", "disapproved"} or len(reason) < 5:
+            flash("Choose a decision and provide a reason of at least 5 characters.", "danger")
+            return redirect(url_for("admin_deal_detail", deal_id=deal_id))
+        db = get_db()
+        deal = db.execute("SELECT id, business_id, title FROM deals WHERE id = ?", (deal_id,)).fetchone()
+        if not deal:
+            abort(404)
+        db.execute("UPDATE deals SET is_active = 0, is_approved = 0, review_status = ?, review_reason = ?, approved_at = NULL, approved_by = NULL WHERE id = ?", (action, reason, deal_id))
+        notify_business(deal["business_id"], "Deal changes requested" if action == "changes_requested" else "Deal disapproved", f"Your deal '{deal['title']}' was {'sent back for correction' if action == 'changes_requested' else 'disapproved'} by an administrator. Reason: {reason}", "warning" if action == "changes_requested" else "danger")
+        record_admin_action(action, "deal", deal_id, reason)
+        flash("Deal sent back to the vendor with your correction reason." if action == "changes_requested" else "Deal disapproved and unpublished.", "success")
+        return redirect(url_for("admin_deal_detail", deal_id=deal_id))
+
+    @app.post("/admin/deals/<string:deal_id>/fee")
+    @roles_required("admin")
+    def update_deal_fee(deal_id):
+        raw_fee = request.form.get("fee", "").strip()
+        try:
+            fee = int(raw_fee) if raw_fee else None
+        except ValueError:
+            fee = -1
+        if fee is not None and not 1 <= fee <= 100_000:
+            flash("Deal fee must be between ₦1 and ₦100,000, or blank to use the vendor/default rule.", "danger")
+            return redirect(url_for("admin_deal_detail", deal_id=deal_id))
+        db = get_db()
+        deal = db.execute("SELECT business_id, title FROM deals WHERE id = ?", (deal_id,)).fetchone()
+        if not deal:
+            abort(404)
+        db.execute("UPDATE deals SET redemption_fee = ? WHERE id = ?", (fee, deal_id))
+        notify_business(deal["business_id"], "Deal fee updated", f"The redemption fee for '{deal['title']}' was updated by an administrator.", "info")
+        record_admin_action("update_deal_fee", "deal", deal_id, str(fee) if fee is not None else "vendor/default")
+        flash("Deal fee rule updated for future redemptions.", "success")
+        return redirect(url_for("admin_deal_detail", deal_id=deal_id))
+
+    @app.post("/admin/deals/<string:deal_id>/archive")
+    @roles_required("admin")
+    def archive_admin_deal(deal_id):
+        db = get_db()
+        deal = db.execute("SELECT id, business_id, title FROM deals WHERE id = ?", (deal_id,)).fetchone()
+        if not deal:
+            abort(404)
+        db.execute("UPDATE deals SET is_active = 0 WHERE id = ?", (deal_id,))
+        notify_business(deal["business_id"], "Deal archived", f"Your deal '{deal['title']}' was archived by an administrator.", "info")
+        record_admin_action("archive_deal", "deal", deal_id, deal["title"])
+        flash("Deal archived.", "success")
+        return redirect(url_for("admin_deals", status="all"))
 
     @app.route("/admin/users")
     @roles_required("admin")
@@ -2813,11 +2963,12 @@ def create_app(test_config=None):
         if action not in states:
             abort(400)
         db = get_db()
-        business = db.execute("SELECT id FROM businesses WHERE id = ?", (business_id,)).fetchone()
+        business = db.execute("SELECT id, name FROM businesses WHERE id = ?", (business_id,)).fetchone()
         if not business:
             abort(404)
         approved, blocked = states[action]
         db.execute("UPDATE businesses SET is_approved = ?, is_blocked = ? WHERE id = ?", (approved, blocked, business_id))
+        notify_business(business_id, "Business access updated", f"Your business account '{business['name']}' was {action}d by an administrator.", "success" if action == "approve" else "warning")
         db.execute(
             "INSERT INTO admin_audit_logs (admin_id, action, target_type, target_id, details, created_at) VALUES (?, ?, 'business', ?, ?, ?)",
             (current_user()["id"], "business_" + action, business_id, action, timestamp()),

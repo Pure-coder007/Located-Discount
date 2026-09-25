@@ -14,6 +14,19 @@
     window.location.replace(url.toString());
   };
 
+  document.querySelector('[data-use-location]')?.addEventListener('click', () => {
+    sessionStorage.removeItem(storageKey);
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+      try {
+        const endpoint = new URL("https://nominatim.openstreetmap.org/reverse");
+        endpoint.search = new URLSearchParams({ format: "jsonv2", addressdetails: "1", lat: String(coords.latitude), lon: String(coords.longitude) });
+        const response = await fetch(endpoint, { headers: { Accept: "application/json", "Accept-Language": "en" } });
+        const address = (await response.json()).address || {};
+        showArea(address.city || address.town || address.village || address.suburb || address.county || address.state_district || address.state);
+      } catch (_error) {}
+    }, () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+  });
+
   if (savedArea) {
     showArea(savedArea);
     return;
@@ -28,7 +41,7 @@
       const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
       if (!response.ok) return;
       const address = (await response.json()).address || {};
-      showArea(address.city || address.town || address.village || address.suburb || address.county);
+      showArea(address.city || address.town || address.village || address.suburb || address.county || address.state_district || address.state);
     } catch (_error) {
       // Location is optional: keep the normal all-deals view if lookup fails.
     }
