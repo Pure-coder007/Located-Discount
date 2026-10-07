@@ -151,3 +151,37 @@ header.reference-nav .home-logo-mark{width:132px!important;height:70px!important
 .portal-brand-logo{width:132px!important;height:70px!important;object-fit:contain!important}
 .footer-logo img,.shared-home-footer .footer-logo img{width:132px!important;height:70px!important;object-fit:contain!important}
 @media(max-width:650px){header.reference-nav .home-logo-mark{width:132px!important;height:70px!important}}
+
+/* Smaller typography for compact phones; desktop sizes stay unchanged. */
+@media(max-width:650px){
+ header.reference-nav .site-nav a{font-size:10px!important}
+ .market-home .hero.hero-refresh h1{font-size:20px!important;line-height:1.2!important}
+ .market-home .hero.hero-refresh .hero-copy{font-size:9px!important}
+ .market-home .hero.hero-refresh .hero-kicker{font-size:7px!important}
+ .market-home .hero .hero-reference-submit,.market-home .nearby-tools button{font-size:10px!important}
+ .market-home .nearby-tools,.market-home [data-location-status]{font-size:9px!important}
+ .market-home .market-section-heading h2,.market-page-heading h1,.market-section-heading h2,.market-home .home-categories .section-heading h2{font-size:18px!important}
+ .market-home .market-section-heading p,.market-page-heading p,.market-section-heading p{font-size:9px!important}
+ .market-eyebrow,.market-text-link{font-size:8px!important}
+ .offer-content h3{font-size:13px!important}
+ .offer-description,.offer-address,.offer-business,.offer-details{font-size:9px!important}
+ .offer-pricing strong{font-size:16px!important}
+ .offer-pricing del,.offer-pricing>span,.offer-availability .offer-status,.offer-availability>span:last-child{font-size:8px!important}
+ .offer-actions a,.offer-primary,.offer-secondary{font-size:9px!important}
+ .market-home .place-content h3{font-size:14px!important}
+ .market-home .place-content p,.place-footer a{font-size:9px!important}
+ .market-home .home-categories .category-card-overlay strong{font-size:12px!important}
+ .vendor-profile-heading h1{font-size:22px!important}
+ .vendor-profile-heading p,.vendor-hours,.vendor-live-count{font-size:10px!important}
+ .info-feature-grid h2{font-size:15px!important}
+ .info-feature-grid p,.platform-info-page .market-page-heading p{font-size:10px!important}
+ .support-bubble,.support-offer p{font-size:9px!important}
+ .support-suggestions button{font-size:8px!important}
+ .support-offer h3{font-size:10px!important}
+ .support-header h2,.support-launcher strong{font-size:11px!important}
+ .chat-message p,.community-panel p,.community-panel label,.community-panel small{font-size:10px!important}
+ .chat-message small{font-size:8px!important}
+ .community-panel h2{font-size:16px!important}
+ .shared-home-footer p,.shared-home-footer a:not(.site-logo),.shared-footer-bottom,footer .footer-bottom{font-size:10px!important}
+ /* Editable fields retain their size to avoid automatic mobile input zoom. */
+}
