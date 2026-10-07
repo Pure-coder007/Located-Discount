@@ -1,0 +1,153 @@
+/* Shared public navigation and spacious marketplace layout. */
+body{background:#f7f9fd;color:#1d2943}
+header.reference-nav{position:relative;z-index:30;width:calc(100% - 64px);max-width:1440px;height:104px;min-height:104px;margin:24px auto 0;border:1px solid #e8ecf5;border-radius:24px 24px 0 0;background:#f9f9ff;box-shadow:none}
+header.reference-nav .nav-shell{width:100%;height:104px;min-height:104px;padding:0 44px;display:flex;align-items:center;justify-content:space-between;gap:32px;box-sizing:border-box}
+header.reference-nav .site-logo{display:flex;align-items:center;gap:10px;font-size:20px;line-height:1.15;font-weight:800;color:#233d69;text-decoration:none;flex-shrink:0}
+header.reference-nav .home-logo-mark{width:48px!important;height:48px!important;object-fit:contain}
+header.reference-nav .site-logo small{display:block;margin-top:5px;font-size:10px;font-weight:500;letter-spacing:.15px;color:#708099}
+header.reference-nav .site-nav{display:flex;align-items:center;gap:34px;position:static;background:transparent;box-shadow:none;padding:0;width:auto}
+header.reference-nav .site-nav a{padding:10px 0;font-size:15px;font-weight:500;color:#24324e;text-decoration:none;border-radius:0;background:transparent;white-space:nowrap}
+header.reference-nav .site-nav a:hover,header.reference-nav .site-nav a.active{color:#2857aa;background:transparent}
+header.reference-nav .site-nav a.active:not(.nav-account){box-shadow:0 2px 0 #2857aa}
+header.reference-nav .site-nav .nav-account{display:grid;place-items:center;width:36px;height:40px;padding:0}
+header.reference-nav .site-nav .nav-account i{font-size:27px;margin:0}
+header.reference-nav .home-menu-toggle{display:none!important}
+.market-home .hero.hero-refresh{width:calc(100% - 64px);max-width:1440px;margin:0 auto;height:auto;min-height:560px;border-radius:0 0 24px 24px;overflow:visible;background-position:center;background-size:cover}
+.market-home .hero.hero-refresh .hero-content{max-width:1200px;padding:84px 40px 70px;margin:auto}
+.market-home .hero.hero-refresh .hero-kicker{display:inline-flex;align-items:center;gap:8px;background:#ffffff1c;border:1px solid #ffffff35;border-radius:40px;padding:9px 16px;margin:0 0 24px;font-size:12px;color:#edf5ff;letter-spacing:.4px}
+.market-home .hero.hero-refresh h1{font-size:clamp(40px,4.6vw,68px)!important;line-height:1.1;letter-spacing:-2px!important;margin:0;font-weight:700;text-transform:none;color:white}
+.market-home .hero.hero-refresh h1 span{color:#d3e7ff}
+.market-home .hero.hero-refresh .hero-copy{font-size:17px!important;line-height:1.8!important;letter-spacing:0;max-width:650px!important;margin:22px auto 32px;color:#f0f5ff}
+.market-home .hero .hero-reference-search{max-width:1060px!important;gap:14px!important;grid-template-columns:1.3fr 1fr 1fr .8fr!important}
+.market-home .hero .hero-reference-search>.hero-reference-field,.market-home .hero .hero-reference-search>.hero-reference-submit{height:56px!important;min-height:56px!important;border-radius:12px!important}
+.market-home .hero .hero-reference-field input,.market-home .hero .hero-reference-field select{height:54px!important;border-radius:11px!important;font-size:14px!important;padding-left:18px!important}
+.market-home .hero .hero-reference-submit{font-size:14px!important;background:#3268bc!important;font-weight:600!important}
+.market-home .nearby-tools{margin-top:20px;gap:16px;font-size:12px}
+.market-home .section{width:100%;max-width:none;box-sizing:border-box;padding:88px max(32px,calc((100vw - 1280px)/2))!important;margin:0}
+.market-home .home-live-deals{background:#f7f9fd}
+.market-home .popular{background:#edf2f9}
+.market-home .market-section-heading{margin-bottom:38px;gap:32px}
+.market-home .market-section-heading h2{font-size:clamp(28px,3vw,40px)!important;line-height:1.25;max-width:850px;margin:12px 0 14px!important}
+.market-home .market-section-heading p{font-size:15px;line-height:1.8}
+.market-home .market-deal-grid,.market-home .places-grid{gap:32px;margin:0 0 32px}
+.offer-content{padding:26px}
+.offer-description{font-size:13px;line-height:1.85;min-height:48px}
+.offer-address,.offer-details{font-size:12px}
+.offer-business{font-size:12px}
+.offer-content h3{font-size:21px!important;margin:16px 0 12px!important}
+.offer-availability{margin:20px 0;gap:12px}
+.offer-actions{margin-top:12px;gap:14px}
+.offer-primary,.offer-secondary{font-size:12px}
+.offer-primary{padding:14px 16px}
+.market-home .place-content{padding:28px}
+.market-home .place-content h3{font-size:23px}
+.market-home .place-content p{font-size:13px;line-height:1.8;margin:14px 0 22px}
+.market-home .home-categories .section-heading{max-width:none;margin-bottom:32px;text-align:left}
+.market-home .home-categories .section-heading h2{font-size:34px!important;max-width:none;margin:12px 0!important}
+.market-home .home-categories .category-grid{max-width:none;gap:24px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.market-home .home-categories .category-card{height:190px!important;min-height:190px!important;border-radius:18px;overflow:hidden}
+.market-home .home-categories .category-card-featured{grid-column:auto}
+.market-home .home-categories .category-card-overlay strong{font-size:20px!important}
+.market-home .home-categories .category-card-overlay{padding:26px;background:linear-gradient(0deg,#152b50cc,transparent)}
+.public-main{width:min(1280px,calc(100% - 64px));margin:52px auto 80px}
+.vendor-profile-heading{display:flex;align-items:center;justify-content:space-between;gap:32px;padding:44px;border:1px solid #e0e7f2;border-radius:24px;background:#edf3fc;margin-top:24px}
+.vendor-profile-heading h1{font-size:clamp(30px,4vw,46px);line-height:1.15;letter-spacing:-1.4px;margin:14px 0 18px;color:#1b3458}
+.vendor-profile-heading p{font-size:14px;line-height:1.8;color:#61738d;margin:10px 0}
+.vendor-profile-heading>.offer-primary{flex:0 0 auto}
+.vendor-current-offers{margin-top:56px}
+.vendor-live-count{font-size:13px;color:#43668d;padding:10px 16px;border:1px solid #d8e3f1;border-radius:40px;background:white;white-space:nowrap}
+.vendor-hours{margin-top:24px;padding:20px 24px;background:white;border:1px solid #e3eaf4;border-radius:14px;line-height:1.8;color:#546b89}
+.vendor-deal-grid{gap:30px}
+.platform-info-page .market-page-heading{max-width:850px;margin:64px 0 44px}
+.platform-info-page .market-page-heading p{font-size:16px;line-height:1.9}
+.info-feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}
+.info-feature-grid article{padding:34px;background:white;border:1px solid #e2e9f3;border-radius:22px}
+.info-feature-grid article>i{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:#edf3fd;color:#2857aa;font-size:24px;margin-bottom:28px}
+.info-feature-grid h2{font-size:22px;line-height:1.4;margin-bottom:16px;color:#1b3458}
+.info-feature-grid p{font-size:14px;line-height:1.9;color:#64748b;margin-bottom:22px}
+.info-feature-grid a:not(.offer-primary){color:#2857aa;font-size:13px;font-weight:600;text-decoration:none}
+.info-feature-grid .contact-phone{font-size:18px;font-weight:600;color:#244775}
+@media(max-width:1200px){header.reference-nav .nav-shell{padding:0 28px}header.reference-nav .site-nav{gap:22px}header.reference-nav .site-nav a{font-size:14px}.market-home .market-deal-grid,.market-home .places-grid,.vendor-deal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){header.reference-nav{width:calc(100% - 32px);height:80px;min-height:80px;margin-top:16px;border-radius:18px 18px 0 0}header.reference-nav .nav-shell{height:80px;min-height:80px;padding:0 22px}header.reference-nav .site-logo{font-size:18px}header.reference-nav .home-logo-mark{width:42px!important;height:42px!important}header.reference-nav .home-menu-toggle{display:flex!important;align-items:center;justify-content:center;width:42px;height:42px;border:1px solid #dbe3f1;border-radius:10px;color:#284875;background:white;font-size:24px}header.reference-nav .site-nav{display:none!important;position:absolute;top:100%;left:0;right:0;width:auto;flex-direction:column;align-items:stretch;gap:4px;background:#f9f9ff;padding:18px 24px 24px;border:1px solid #e3e9f4;border-radius:0 0 18px 18px;box-shadow:0 18px 24px #14274314}header.reference-nav.nav-is-open .site-nav{display:flex!important}header.reference-nav .site-nav a{padding:13px 8px;font-size:15px}header.reference-nav .site-nav a.active:not(.nav-account){box-shadow:none;background:#edf2fb;border-radius:8px}header.reference-nav .site-nav .nav-account{margin-top:8px}.market-home .hero.hero-refresh{width:calc(100% - 32px);min-height:0}.market-home .hero.hero-refresh .hero-content{padding:56px 26px!important}.market-home .hero .hero-reference-search{grid-template-columns:repeat(2,minmax(0,1fr))!important}.market-home .section{padding:64px 28px!important}.market-home .home-categories .category-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.info-feature-grid{grid-template-columns:1fr}.vendor-profile-heading{padding:30px;align-items:flex-start;flex-direction:column}.public-main{width:calc(100% - 40px);margin-top:32px}}
+@media(max-width:650px){header.reference-nav .site-logo small{font-size:9px}.market-home .hero.hero-refresh .hero-content{padding:42px 20px!important}.market-home .hero.hero-refresh h1{font-size:40px!important;letter-spacing:-1.3px!important}.market-home .hero.hero-refresh .hero-copy{font-size:14px!important;line-height:1.8!important;margin:20px auto 28px}.market-home .hero .hero-reference-search{grid-template-columns:minmax(0,1fr)!important;gap:12px!important}.market-home .hero .hero-reference-field input,.market-home .hero .hero-reference-field select{font-size:16px!important}.market-home .section{padding:52px 20px!important}.market-home .market-section-heading{display:block;margin-bottom:30px}.market-home .market-section-heading h2{font-size:30px!important;letter-spacing:-.8px}.market-home .market-section-heading p{font-size:14px}.market-home .market-deal-grid,.market-home .places-grid,.vendor-deal-grid{grid-template-columns:minmax(0,1fr);gap:28px}.offer-content,.market-home .place-content{padding:24px}.market-home .home-categories .category-grid{grid-template-columns:minmax(0,1fr)!important;gap:18px}.market-home .home-categories .category-card{height:170px!important;min-height:170px!important}.market-home .home-categories .category-card-overlay{justify-content:flex-start!important}.market-home .home-categories .section-heading h2{font-size:28px!important}.vendor-profile-heading{padding:26px}.vendor-current-offers{margin-top:40px}.vendor-live-count{display:inline-block;margin-top:16px}.info-feature-grid article{padding:28px}.platform-info-page .market-page-heading{margin-top:40px}}
+
+/* Full-width header and compact cards shared by all public offer listings. */
+header.reference-nav{width:100%;max-width:none;height:64px;min-height:64px;margin:0;border:0;border-bottom:1px solid #e8ecf5;border-radius:0}
+header.reference-nav .nav-shell{height:64px;min-height:64px;max-width:1440px;margin:auto;padding:0 32px;gap:24px}
+header.reference-nav .site-logo{font-size:16px;gap:8px}
+header.reference-nav .home-logo-mark{width:34px!important;height:34px!important}
+header.reference-nav .site-logo small{font-size:8px;margin-top:3px}
+header.reference-nav .site-nav{gap:26px}
+header.reference-nav .site-nav a{font-size:13px;padding:8px 0}
+header.reference-nav .site-nav .nav-account i{font-size:22px}
+.market-home .hero.hero-refresh{width:100%;max-width:none;margin:0;min-height:0;border-radius:0;font-family:Poppins,Arial,sans-serif}
+.market-home .hero.hero-refresh .hero-content{padding:48px 32px 38px!important}
+.market-home .hero.hero-refresh h1{font-family:Poppins,Arial,sans-serif!important;font-size:46px!important;line-height:1.16;letter-spacing:-1.3px!important}
+.market-home .hero.hero-refresh .hero-kicker{font-size:10px;padding:7px 12px;margin-bottom:18px;border-radius:0}
+.market-home .hero.hero-refresh .hero-copy{font-family:Poppins,Arial,sans-serif!important;font-size:14px!important;line-height:1.7!important;max-width:600px!important;margin:16px auto 24px}
+.market-home .hero .hero-reference-search>.hero-reference-field,.market-home .hero .hero-reference-search>.hero-reference-submit{height:46px!important;min-height:46px!important;border-radius:0!important}
+.market-home .hero .hero-reference-field input,.market-home .hero .hero-reference-field select{height:44px!important;font-size:13px!important;border-radius:0!important}
+.market-home .hero .hero-reference-submit{font-size:13px!important}
+.market-home .nearby-tools{margin-top:14px}
+.market-home .section{padding:56px max(24px,calc((100vw - 1360px)/2))!important}
+.public-main{width:min(1360px,calc(100% - 48px))}
+.market-deal-grid,.market-home .market-deal-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.offer-cover{aspect-ratio:2.35}
+.offer-content{padding:18px 20px}
+.offer-content h3{font-size:18px!important;line-height:1.4!important;margin:9px 0 7px!important;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.offer-description{font-size:12px;line-height:1.65;min-height:0;margin-bottom:8px;-webkit-line-clamp:1}
+.offer-business{font-size:11px}
+.offer-pricing{margin:9px 0;gap:9px}
+.offer-pricing strong{font-size:23px}
+.offer-address{font-size:11px;line-height:1.6;margin:9px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.offer-address i{margin-right:6px}
+.offer-availability{margin:11px 0;gap:8px}
+.offer-details{font-size:11px;padding:9px 0}
+.offer-actions{margin-top:7px;gap:10px}
+.offer-primary{padding:10px 12px;font-size:11px}
+.offer-secondary{font-size:11px}
+.market-home .place-image{aspect-ratio:2.2}
+.market-home .place-content{padding:20px}
+.market-home .place-content h3{font-size:20px}
+.market-home .place-content p{margin:9px 0 14px;-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+@media(max-width:1100px){.market-deal-grid,.market-home .market-deal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){header.reference-nav .nav-shell{padding:0 20px}header.reference-nav .site-nav{gap:4px;border-radius:0}header.reference-nav .site-nav a{font-size:13px;padding:11px 8px}.market-home .hero.hero-refresh .hero-content{padding:36px 24px!important}.market-home .hero.hero-refresh h1{font-size:38px!important}.market-home .section{padding:44px 24px!important}.offer-content{padding:18px 20px}}
+@media(max-width:650px){.market-home .hero.hero-refresh .hero-content{padding:30px 20px!important}.market-home .hero.hero-refresh h1{font-size:32px!important}.market-home .hero.hero-refresh .hero-copy{font-size:12px!important;margin:14px auto 20px}.market-home .hero .hero-reference-field input,.market-home .hero .hero-reference-field select{font-size:16px!important}.market-home .section{padding:38px 16px!important}.public-main{width:calc(100% - 32px)}.market-deal-grid,.market-home .market-deal-grid{grid-template-columns:minmax(0,1fr);gap:20px}.market-home .market-section-heading h2{font-size:26px!important}.market-home .market-section-heading p{font-size:12px}.offer-cover{aspect-ratio:2.2}.offer-content,.market-home .place-content{padding:16px 18px}.offer-content h3{font-size:18px!important}.offer-description{font-size:12px}.offer-primary,.offer-actions a{font-size:12px}}
+
+/* Full artwork stays visible; compact typography on small displays. */
+header.reference-nav,header.reference-nav .nav-shell{height:96px;min-height:96px}
+header.reference-nav .home-logo-mark{width:168px!important;height:84px!important;object-fit:contain!important;object-position:center}
+.portal-brand-logo{width:150px!important;height:88px!important;object-fit:contain!important;max-width:100%}
+.footer-logo img,.shared-home-footer .footer-logo img{width:168px!important;height:96px!important;object-fit:contain!important}
+.page-loader-mark{object-fit:contain!important;width:160px!important;height:100px!important}
+@media(max-width:650px){
+ header.reference-nav,header.reference-nav .nav-shell{height:86px;min-height:86px}
+ header.reference-nav .home-logo-mark{width:140px!important;height:76px!important}
+ header.reference-nav .site-nav a{font-size:11px}
+ .market-home .hero.hero-refresh h1{font-size:24px!important;letter-spacing:-.6px!important}
+ .market-home .hero.hero-refresh .hero-copy{font-size:10px!important;line-height:1.7!important}
+ .market-home .hero.hero-refresh .hero-kicker{font-size:8px!important}
+ .market-home .hero .hero-reference-submit,.market-home .nearby-tools button{font-size:11px!important}
+ .market-home .market-section-heading h2,.market-page-heading h1,.market-section-heading h2{font-size:21px!important}
+ .market-home .market-section-heading p,.market-page-heading p,.market-section-heading p{font-size:10px!important}
+ .market-eyebrow,.market-text-link{font-size:9px!important}
+ .offer-content h3{font-size:15px!important}
+ .offer-description,.offer-address,.offer-business,.offer-details{font-size:10px!important;line-height:1.6}
+ .offer-pricing strong{font-size:19px}
+ .offer-pricing del,.offer-pricing>span,.offer-availability .offer-status,.offer-availability>span:last-child{font-size:9px}
+ .offer-actions a,.offer-primary,.offer-secondary{font-size:10px!important}
+ .market-home .place-content h3{font-size:16px}
+ .market-home .place-content p,.place-footer a{font-size:10px}
+ .market-home .home-categories .section-heading h2{font-size:21px!important}
+ .market-home .home-categories .category-card-overlay strong{font-size:14px!important}
+ .vendor-profile-heading h1{font-size:26px}.vendor-profile-heading p,.vendor-hours{font-size:11px}
+ .info-feature-grid h2{font-size:17px}.info-feature-grid p,.platform-info-page .market-page-heading p{font-size:11px}
+ .support-bubble{font-size:10px}.support-suggestions button{font-size:9px}.support-offer h3{font-size:11px}.support-offer p{font-size:10px}
+ /* Keep editable fields at 16px to avoid forced zoom on mobile browsers. */
+}
+
+/* Fit the complete supplied wordmark without cropping. */
+header.reference-nav .home-logo-mark{width:148px!important;height:74px!important;object-fit:contain!important}
+.portal-brand-logo{width:132px!important;height:70px!important;object-fit:contain!important}
+.footer-logo img,.shared-home-footer .footer-logo img{width:148px!important;height:80px!important;object-fit:contain!important}
+@media(max-width:650px){header.reference-nav .home-logo-mark{width:124px!important;height:62px!important}}

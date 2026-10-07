@@ -1,0 +1,10 @@
+<div class="rating-picker" data-rating-picker>
+  <label for="deal-rating">Rate this deal <span>optional</span></label>
+  <p>Share your opinion of this offer as you generate your voucher.</p>
+  <select id="deal-rating" class="rating-select" name="stars" aria-describedby="rating-preview">
+    <option value="">Choose stars, or skip for now</option>
+    {% set current_rating = own_rating(deal.id if deal is defined else code.deal_id) %}
+    {% for star in range(1,6) %}<option value="{{ star }}" {% if request.form.get('stars', (current_rating.stars|string if current_rating else '')) == star|string %}selected{% endif %}>{{ '⭐️' * star }} — {{ star }} star{{ 's' if star != 1 else '' }}</option>{% endfor %}
+  </select>
+  <output id="rating-preview" aria-live="polite" data-rating-preview>Your rating is optional.</output>
+</div>

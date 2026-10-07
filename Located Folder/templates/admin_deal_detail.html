@@ -3,7 +3,7 @@
 {% block portal_eyebrow %}Marketplace safety{% endblock %}
 {% block portal_title %}Review deal{% endblock %}
 {% block portal_subtitle %}Read-only review workspace. Confirm the offer is accurate, useful, funded, and safe before publishing.{% endblock %}
-{% block portal_content %}
+{% block portal_content %}<p><span class="offer-status {{ deal_state(deal) }}">{{ deal_state(deal)|title }} · {{ days_left(deal) }} days to go</span> <a href="{{ url_for('renew_deal', deal_id=deal.id) }}">Renew deal</a></p>
 <div class="admin-review-shell">
   <a class="admin-review-back" href="{{ url_for('admin_deals', status='pending') }}"><i class="bi bi-arrow-left"></i> Back to deal approvals</a>
   <section class="admin-review-hero">

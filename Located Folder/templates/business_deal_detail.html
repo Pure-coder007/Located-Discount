@@ -3,7 +3,7 @@
 {% block portal_eyebrow %}Deal performance{% endblock %}
 {% block portal_title %}Deal performance{% endblock %}
 {% block portal_subtitle %}A complete read-only view of this offer and everything it has achieved.{% endblock %}
-{% block portal_content %}
+{% block portal_content %}<p><span class="offer-status {{ deal_state(deal) }}">{{ deal_state(deal)|title }} · {{ days_left(deal) }} days to go</span> <a href="{{ url_for('renew_deal', deal_id=deal.id) }}">Renew deal</a></p>
 <div class="deal-detail-workspace">
   <a class="deal-detail-back" href="{{ url_for('business_deals') }}"><i class="bi bi-arrow-left"></i> Back to my deals</a>
   <section class="deal-detail-hero"><div class="deal-detail-hero-copy"><span class="deal-status-pill status-{{ deal.deal_status|lower|replace(' ', '-') }}">{{ deal.deal_status }}</span><span class="deal-detail-category">{{ deal.category }}</span><h2>{{ deal.title }}</h2><p>{{ deal.description }}</p><div class="deal-detail-price"><strong>₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</strong>{% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}<small>customer price</small></div></div>{% if deal.image_secure_url or deal.image_file_name %}<img class="deal-detail-hero-image" src="{{ deal.image_secure_url or url_for('static', filename='uploads/products/' ~ deal.image_file_name) }}" alt="{{ deal.title }}">{% else %}<span class="deal-detail-hero-placeholder"><i class="bi bi-ticket-perforated"></i></span>{% endif %}</section>

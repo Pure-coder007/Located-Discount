@@ -28,6 +28,12 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         runner = self.app.test_cli_runner()
         result = runner.invoke(args=["init-db"])
         self.assertEqual(result.exit_code, 0, result.output)
+        # Categories are administrator-managed; seed only this isolated fixture.
+        connection = sqlite3.connect(self.database)
+        for category in ("Food & Drink", "Shopping", "Beauty"):
+            connection.execute("INSERT INTO categories (name, created_at) VALUES (?, ?)", (category, timestamp()))
+        connection.commit()
+        connection.close()
         self.client = self.app.test_client()
 
     def tearDown(self):
@@ -186,7 +192,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection.close()
         response = self.post(f"/deals/{deal_id}/claim", {})
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers["Location"].endswith("/deals"))
+        self.assertIn("/codes/", response.headers["Location"])
 
         self.post(
             "/register",

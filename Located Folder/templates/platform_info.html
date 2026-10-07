@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}{{ {'about':'About Us','services':'Services','contact':'Contact Us'}[info_page] }} | Locatediscount{% endblock %}
+{% block content %}
+<div class="platform-info-page">
+{% if info_page == 'about' %}
+<section class="market-page-heading"><div><span class="market-eyebrow">ABOUT LOCATEDISCOUNT</span><h1>Discover more of your community.</h1><p>We connect customers with offers from approved local businesses, making it easier to find a favourite place and enjoy a better price.</p></div></section>
+<div class="info-feature-grid"><article><i class="bi bi-geo-alt"></i><h2>Find something nearby</h2><p>Browse local businesses and live offers by city, area or category.</p><a href="{{ url_for('vendors') }}">Explore businesses →</a></article><article><i class="bi bi-heart"></i><h2>Keep the good finds</h2><p>Save offers to your customer dashboard and see reminders before they expire.</p><a href="{{ url_for('saved_deals') }}">Your saved deals →</a></article><article><i class="bi bi-ticket-perforated"></i><h2>Visit. Save. Enjoy.</h2><p>Generate a private voucher and redeem it with the business in person.</p><a href="{{ url_for('deals') }}">Discover live deals →</a></article></div>
+{% elif info_page == 'services' %}
+<section class="market-page-heading"><div><span class="market-eyebrow">OUR SERVICES</span><h1>More value for every local visit.</h1><p>Simple tools for customers, and a dedicated workspace for local businesses.</p></div></section>
+<div class="info-feature-grid"><article><i class="bi bi-compass"></i><h2>Deal discovery</h2><p>Compare images, prices, locations, opening hours and terms before you claim.</p><a href="{{ url_for('deals') }}">Explore offers →</a></article><article><i class="bi bi-qr-code"></i><h2>Customer vouchers</h2><p>Generate a one-time voucher, rate the offer, and keep your voucher history in one place.</p><a href="{{ url_for('my_codes') }}">My vouchers →</a></article><article><i class="bi bi-shop"></i><h2>Business tools</h2><p>Submit and renew deals, manage your wallet, redeem vouchers and chat with admins.</p><a href="{{ url_for('register') }}">List your business →</a></article></div>
+{% else %}
+<section class="market-page-heading"><div><span class="market-eyebrow">LET’S HELP YOU OUT</span><h1>A little help goes a long way.</h1><p>Get help finding a deal, using a voucher, or managing your business account.</p></div></section>
+<div class="info-feature-grid"><article><i class="bi bi-whatsapp"></i><h2>Speak with admin</h2><p>For account questions and personal assistance, reach our admin team on WhatsApp.</p><p class="contact-phone">+234 803 733 8514</p><a class="offer-primary" href="https://wa.me/2348037338514" target="_blank" rel="noopener noreferrer">Open WhatsApp <i class="bi bi-arrow-up-right"></i></a></article><article><i class="bi bi-chat-heart"></i><h2>Ask the platform guide</h2><p>Look up current deals and business contacts, or find help with vouchers and saved offers.</p><button class="offer-primary" type="button" data-support-trigger>Ask Locatediscount</button></article><article><i class="bi bi-info-circle"></i><h2>Common questions</h2><p>Find the platform policies and answers to frequently asked questions.</p><a href="{{ url_for('policies') }}">Explore help and policies →</a></article></div>
+{% endif %}
+</div>
+{% endblock %}

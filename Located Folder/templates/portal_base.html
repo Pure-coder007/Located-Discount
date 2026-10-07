@@ -8,7 +8,7 @@
     <aside class="portal-sidebar flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(0,0,0,.04)] lg:sticky lg:top-7 lg:h-[calc(100vh-3.5rem)]">
       <div class="portal-sidebar-brand">
         <a href="{{ url_for('dashboard') }}" class="flex items-center rounded-2xl px-3 py-3 text-ink" aria-label="Locatediscount dashboard">
-          <img class="portal-brand-logo" src="{{ url_for('static', filename='img/favicon.png') }}" alt="Locatediscount">
+          <img class="portal-brand-logo" src="{{ url_for('static', filename='img/discount_logo.png', v='brand-20261007') }}" alt="Locatediscount">
         </a>
         <button class="portal-menu-toggle" type="button" aria-controls="portal-main-nav" aria-expanded="false" aria-label="Menu"><i class="bi bi-list" aria-hidden="true"></i></button>
       </div>
@@ -40,7 +40,7 @@
           {% endif %}
           <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
           {% endif %}
-        </nav>
+        <a href="{{ url_for('chat') }}" class="portal-nav"><i class="bi bi-chat-dots"></i> Chat with Admin <b class="portal-nav-badge" data-chat-unread-total {% if not chat_unread_total %}hidden{% endif %}>{{ chat_unread_total }}</b></a></nav>
       </div>
       <div class="portal-sidebar-account mt-7 rounded-2xl bg-white/70 p-4 lg:mt-auto">
         <div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-mint text-sm font-extrabold text-pine">{{ current_user.name[:1]|upper }}</span><div class="min-w-0"><p class="truncate text-sm font-extrabold text-ink">{{ current_user.name }}</p><p class="truncate text-[11px] font-semibold text-slate-500">{{ current_user.role|title }}</p></div></div>
@@ -59,3 +59,5 @@
   </div>
 </div>
 {% endblock %}
+
+{% block extra_head %}{{ super() }}<script src="{{ url_for('static', filename='js/chat-notifications.js') }}" defer></script>{% endblock %}

@@ -2,6 +2,7 @@
 {% block title %}{{ deal.title }} | Locatediscount{% endblock %}
 {% block extra_head %}<script src="{{ url_for('static', filename='js/deal-detail.js', v='20260925-2') }}" defer></script>{% endblock %}
 {% block content %}
+
 <div class="deal-page">
   <a href="{{ url_for('deals') }}" class="deal-back"><i class="bi bi-arrow-left"></i> All deals</a>
 
@@ -24,9 +25,11 @@
           {% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}
           {% if deal.discount_price_kobo %}<strong>₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</strong>{% endif %}
         </div>
+        {% set rating = rating_summary(deal.id) %}<p class="deal-rating">★ {% if rating.total %}{{ rating.average|round(1) }}/5 · {{ rating.total }} reviews{% else %}No ratings yet{% endif %}</p>
+
         <p class="deal-description">{{ deal.description }}</p>
-        <div class="deal-countdown" data-countdown="{{ deal.expires_at }}"><i class="bi bi-clock"></i> <span>Ends {{ deal.expires_at[:16].replace('T', ' ') }}</span></div>
-        <p class="deal-availability">{{ daily_remaining }} of {{ daily_capacity }} daily vouchers remaining</p>
+        <div class="deal-countdown" data-countdown="{{ deal.expires_at }}"><i class="bi bi-clock"></i> <span>{{ days_left(deal) }} days to go</span></div>
+        <p class="deal-availability">{{ daily_remaining }} vouchers remaining</p>
         <a class="deal-vendor" href="{{ url_for('vendor_detail', business_id=deal.business_id) }}">
           <span><i class="bi bi-shop"></i></span>
           <span><b>{{ deal.business_name }}</b><small>{{ deal.address }}, {{ deal.city }}</small></span>
@@ -54,32 +57,5 @@
   </div>
 </div>
 <div class="deal-lightbox" data-lightbox hidden role="dialog" aria-modal="true" aria-label="Expanded deal image"><button type="button" class="deal-lightbox-close" data-lightbox-close aria-label="Close image"><i class="bi bi-x-lg"></i></button><img data-lightbox-image src="" alt="{{ deal.title }}"></div>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const main = document.querySelector('.deal-showcase-media > img');
-  const lightbox = document.querySelector('[data-lightbox]');
-  const lightboxImage = document.querySelector('[data-lightbox-image]');
-  const openImage = (url) => { if (!url || !lightbox) return; lightboxImage.src = url; lightbox.hidden = false; document.body.classList.add('deal-lightbox-open'); };
-  const closeImage = () => { if (!lightbox) return; lightbox.hidden = true; lightboxImage.src = ''; document.body.classList.remove('deal-lightbox-open'); };
-  document.querySelectorAll('[data-gallery-image]').forEach(button => button.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const url = button.dataset.galleryImage;
-    if (button === main) { openImage(url); return; }
-    if (main) main.src = url;
-    document.querySelectorAll('.deal-gallery-thumb').forEach(item => item.classList.remove('is-selected'));
-    button.classList.add('is-selected');
-    openImage(url);
-  }));
-  document.querySelector('[data-lightbox-close]')?.addEventListener('click', closeImage);
-  lightbox?.addEventListener('click', event => { if (event.target === lightbox) closeImage(); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeImage(); });
-  const timer = document.querySelector('[data-countdown]');
-  if (timer) {
-    const target = new Date(timer.dataset.countdown).getTime();
-    const tick = () => { const left = Math.max(0, target - Date.now()); const h = Math.floor(left / 3600000); const m = Math.floor(left % 3600000 / 60000); const s = Math.floor(left % 60000 / 1000); timer.querySelector('span').textContent = left ? `Ends in ${h}h ${m}m ${s}s` : 'Deal ended'; };
-    tick(); setInterval(tick, 1000);
-  }
-});
-</script>
+
 {% endblock %}

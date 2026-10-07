@@ -1,0 +1,27 @@
+{% macro deal_card(deal, saved=false) %}
+{% set state = deal_state(deal) %}
+{% set available = deal.is_active and deal.is_approved and days_left(deal) and deal.redemption_count < deal.redemption_limit and (deal.business_approved is not defined or deal.business_approved) and (deal.is_blocked is not defined or not deal.is_blocked) %}
+{% set images = deal_gallery(deal.id) %}
+{% set rating = rating_summary(deal.id) %}
+<article class="offer-card" data-offer-card>
+  <div class="offer-cover">
+    {% if images %}<img data-offer-cover src="{{ product_image_url(images[0]) }}" alt="{{ deal.title }}" loading="lazy" width="640" height="420">
+    {% else %}<div class="offer-image-placeholder"><i class="bi bi-ticket-perforated"></i><span>{{ deal.category }}</span></div>{% endif %}
+    <span class="offer-category">{{ deal.category }}</span>
+    {% if deal.regular_price_kobo > deal.discount_price_kobo and deal.regular_price_kobo %}<span class="offer-discount">Save {{ ((1 - deal.discount_price_kobo / deal.regular_price_kobo) * 100)|round|int }}%</span>{% endif %}
+    <form class="offer-save" method="post" action="{{ url_for('toggle_favorite', deal_id=deal.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" aria-label="{{ 'Remove from saved' if saved or deal.id|string in saved_deal_ids else 'Save for later' }}"><i class="bi {{ 'bi-heart-fill' if saved or deal.id|string in saved_deal_ids else 'bi-heart' }}"></i></button></form>
+    {% if images|length > 1 %}<div class="offer-thumbnails" aria-label="Deal images">{% for image in images %}<button type="button" data-offer-image="{{ product_image_url(image) }}" aria-label="View image {{ loop.index }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"><img src="{{ product_image_url(image) }}" alt="" loading="lazy"></button>{% endfor %}</div>{% endif %}
+  </div>
+  <div class="offer-content">
+    <div class="offer-business"><i class="bi bi-shop"></i><a href="{{ url_for('vendor_detail', business_id=deal.business_id) }}">{{ deal.business_name }}</a><span>★ {{ rating.average|round(1) if rating.total else 'New' }}{% if rating.total %} <small>({{ rating.total }})</small>{% endif %}</span></div>
+    <h3>{% if available %}<a href="{{ url_for('deal_detail', deal_id=deal.id) }}">{{ deal.title }}</a>{% else %}{{ deal.title }}{% endif %}</h3>
+    <p class="offer-description">{{ deal.description }}</p>
+    <div class="offer-pricing"><strong>₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</strong>{% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}<span>per item</span></div>
+    <p class="offer-address"><i class="bi bi-geo-alt"></i>{{ deal.address }}, {{ deal.city }}</p>
+    <div class="offer-availability"><span class="offer-status {{ state }}">{{ days_left(deal) }} days to go{% if state == 'expired' %} · Expired{% elif state == 'expiring' %} · Ending soon{% elif not available %} · Unavailable{% endif %}</span>{% if available %}<span><i class="bi bi-ticket"></i>{{ voucher_remaining(deal) }} vouchers remaining</span>{% endif %}</div>
+    {% if saved and state == 'expiring' %}<p class="offer-reminder" role="status"><i class="bi bi-bell"></i>Reminder: this saved offer expires soon.</p>{% endif %}
+    <details class="offer-details"><summary>Full deal details <i class="bi bi-chevron-down"></i></summary><div><p>{{ deal.description }}</p><h4>Offer terms</h4><p>{{ deal.terms }}</p><p><b>Expires:</b> {{ deal.expires_at[:10] }} · Up to {{ deal.max_vouchers_per_customer if deal.max_vouchers_per_customer else 'the available allocation of' }} voucher(s) per customer; one per device.</p>{% if deal.opening_hours %}<h4>Opening hours</h4><p class="preserve-lines">{{ deal.opening_hours }}</p>{% endif %}{% if deal.business_phone %}<a href="tel:{{ deal.business_phone }}"><i class="bi bi-telephone"></i>{{ deal.business_phone }}</a>{% endif %}<a href="https://www.google.com/maps/dir/?api=1&amp;destination={{ (deal.address ~ ', ' ~ deal.city)|urlencode }}" target="_blank" rel="noopener noreferrer"><i class="bi bi-signpost"></i>Get directions</a></div></details>
+    <div class="offer-actions">{% if available %}<a class="offer-primary" href="{{ url_for('claim_code', deal_id=deal.id) }}">Get voucher <i class="bi bi-arrow-up-right"></i></a><a class="offer-secondary" href="{{ url_for('deal_detail', deal_id=deal.id) }}">Explore deal</a>{% else %}<a class="offer-primary" href="{{ url_for('deals', category=deal.category) }}">Find similar deals <i class="bi bi-arrow-right"></i></a>{% endif %}</div>
+  </div>
+</article>
+{% endmacro %}

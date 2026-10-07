@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Locatediscount{% endblock %}</title>
-  <link rel="icon" type="image/png" sizes="any" href="{{ url_for('static', filename='img/favicon.png') }}">
+  <link rel="icon" type="image/png" sizes="any" href="{{ url_for('static', filename='img/discount_logo.png', v='brand-20261007') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
@@ -16,27 +16,21 @@
   <script src="{{ url_for('static', filename='js/mobile-nav.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/deal-directions.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/opening-hours.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/marketplace.css') }}">
+  <script src="{{ url_for('static', filename='js/public-experience.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/support.js') }}" defer></script>
   {% block extra_head %}{% endblock %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/community.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/site-refresh.css') }}">
 </head>
 <body class="public-body min-h-screen">
   <div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page">
     <div class="page-loader-card">
-      <img class="page-loader-mark" src="{{ url_for('static', filename='img/favicon.png') }}" alt="" aria-hidden="true">
+      <img class="page-loader-mark" src="{{ url_for('static', filename='img/discount_logo.png', v='brand-20261007') }}" alt="" aria-hidden="true">
     </div>
   </div>
   {% block site_header %}
-  <header class="site-header refreshed-home-nav">
-    <div class="nav-shell">
-      <a class="site-logo" href="{{ url_for('home') }}"><img class="home-logo-mark" src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a>
-      <button class="nav-menu-toggle home-menu-toggle" type="button" aria-controls="shared-main-nav" aria-expanded="false" aria-label="Menu"><i class="bi bi-list" aria-hidden="true"></i></button>
-      <nav class="site-nav" id="shared-main-nav" aria-label="Main navigation">
-        <a class="{% if request.endpoint in ('home', 'deals', 'deal_detail', 'claim_code') %}active{% endif %}" href="{{ url_for('deals') }}"><i class="bi bi-ticket-perforated"></i> Deals</a>
-        <a class="{% if request.endpoint in ('vendors', 'vendor_detail') %}active{% endif %}" href="{{ url_for('vendors') }}"><i class="bi bi-shop"></i> Vendors</a>
-        <a class="{% if request.endpoint in ('my_codes', 'code_detail') %}active{% endif %}" href="{{ url_for('my_codes') }}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>
-        {% if current_user %}<a class="home-nav-cta" href="{{ url_for('business_dashboard') if current_user.role == 'business' else url_for('admin_dashboard') if current_user.role == 'admin' else url_for('home') }}">Dashboard <i class="bi bi-arrow-up-right"></i></a>{% else %}<a href="{{ url_for('login') }}">Business sign in</a><a class="home-nav-cta" href="{{ url_for('register') }}">List a business <i class="bi bi-arrow-up-right"></i></a>{% endif %}
-      </nav>
-    </div>
-  </header>
+  {% include '_site_header.html' %}
   {% endblock %}
   <main class="{% block main_class %}public-main{% endblock %}">
     {% block flash_messages %}{% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash-message flash-{{ category }} public-flash"><i class="bi {% if category == 'danger' %}bi-exclamation-octagon{% elif category == 'success' %}bi-check-circle{% elif category == 'warning' %}bi-exclamation-triangle{% else %}bi-info-circle{% endif %}"></i><span>{{ message }}</span></div>{% endfor %}{% endwith %}{% endblock %}
@@ -45,5 +39,7 @@
   {% block site_footer %}
   <footer class="shared-home-footer"><div class="shared-footer-grid"><div><a class="site-logo footer-logo" href="{{ url_for('home') }}"><img src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a><p>Discover local business deals in your city, claim a unique code, and redeem it in-store.</p></div><div><h3>Explore</h3><a href="{{ url_for('home') }}">Browse deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a></div><div><h3>Business</h3><a href="{{ url_for('register') }}">List your business</a><a href="{{ url_for('login') }}">Business sign in</a></div><div><h3>Policies</h3><a href="{{ url_for('policy_page', policy_key='terms') }}">Terms of service</a><a href="{{ url_for('policy_page', policy_key='privacy') }}">Privacy policy</a><a href="{{ url_for('policy_page', policy_key='faq') }}">FAQ</a></div></div><div class="shared-footer-bottom"><span>© 2026 Locatediscount. All rights reserved.</span></div></footer>
   {% endblock %}
+{% if saved_reminder_count %}<a class="saved-reminder" href="{{ url_for('saved_deals') }}" role="status">{{ saved_reminder_count }} saved deal{% if saved_reminder_count != 1 %}s{% endif %} expire within 3 days. View reminders →</a>{% endif %}
+  {% include '_support_widget.html' %}
 </body>
 </html>

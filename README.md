@@ -216,3 +216,69 @@ This is a secure pilot build. Before public launch:
 - `locatediscount/validators.py`: shared validation rules.
 - `Located Folder/templates/`: consumer, business, and admin Jinja pages.
 # Located-Discount
+
+## Live support and customer dashboard
+
+Install the updated `requirements.txt` before running the app. `/chat` opens the
+business/admin conversation interface. Administrators select a business; business
+owners can access only their own conversation. `/ws/chat/<business_id>` uses a
+native WebSocket with same-origin checks, a session CSRF handshake, length limits,
+and server-side role checks. Messages are stored in the application database and
+sent to connected clients within approximately half a second. Shared database
+storage supports both Gunicorn workers and reconnect history without Redis.
+
+The Render start command now allocates 50 threads per worker. Each connected
+WebSocket occupies a thread; size this for expected concurrent support users,
+leaving capacity for normal HTTP requests. This follows the
+[Flask-Sock Gunicorn guidance](https://flask-sock.readthedocs.io/en/latest/web_servers.html).
+A custom reverse proxy must forward WebSocket Upgrade headers. Serve production
+traffic over HTTPS so browsers connect over WSS. Schema additions are idempotent
+and are applied at startup for SQLite and Postgres.
+
+`/saved-deals` is the customer dashboard. Customers can save before claiming a
+voucher; those saves live in the browser's signed session, then move into their
+private profile on visiting the dashboard after a claim. Reminders appear in the
+app for saved offers expiring within three days. These are in-app reminders;
+email, SMS and push delivery are not configured. Customer device tokens and signed anonymous saves use separate, HttpOnly cookies
+lasting up to 180 days, so the eight-hour staff session does not erase customer
+access. Clearing browser cookies removes access to these browser-bound records.
+
+Nearby discovery matches neighbourhood, city and regional aliases against
+business addresses and cities, ignoring case. It uses address matching rather
+than a kilometre radius because businesses do not currently store coordinates.
+The homepage displays the actual filtered deals. Public offers show real ratings
+from customers who generated a voucher for that deal, days to go, and one remaining-voucher
+number. The existing automatic allocation continues to vary by deal and day.
+
+Business and admin deal lists/details include renewal links. Renewals retain
+content and voucher history, extend expiry, and allow the total redemption limit
+to be adjusted. Existing customer and device limits remain enforced. Business
+renewals require review; admin renewals publish after business and wallet checks,
+and are recorded in the audit log. Green means live, yellow means expiry within
+three days, and red means expired. Pending and closed offers have separate labels.
+
+## Public platform guide and richer offer cards
+
+The floating **Ask Locatediscount** guide replaces the direct WhatsApp bubble.
+It answers common platform enquiries and looks up current approved, active,
+unexpired offers and public business contacts through `/support/ask`. Every
+question queries the database; newly approved deals are immediately searchable.
+Suggestions cover latest deals, nearby discovery, vouchers, saved reminders and
+admin support. Unknown questions receive a clear fallback plus a WhatsApp handoff
+to **+234 803 733 8514** with the enquiry prefilled. This is a catalogue-backed
+platform guide with curated explanations, not a general-purpose language model;
+it needs no AI key or WhatsApp API subscription and never messages anyone itself.
+It exposes no customer identities, voucher codes, staff email addresses or wallet
+balances. The endpoint uses the existing CSRF protection and bounded queries.
+
+Homepage, catalogue and saved offers share image/gallery cards with real prices,
+rating summaries, availability, expiry, contact details, hours and expandable
+terms. Saved offers retain full details after expiry. Ratings can be submitted
+optionally during voucher generation, in the same transaction as the voucher,
+or added/updated on the customer's own voucher page. Repeat device claims reopen
+the existing voucher instead of prompting another unsuccessful claim.
+
+Nearby address matching normalizes punctuation and common address words, and
+checks full-address components as well as regional aliases. More specific matches
+are ranked before broader city/state matches. Discovery remains address-based,
+since businesses currently have no latitude/longitude coordinates.

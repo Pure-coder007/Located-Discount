@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% from '_deal_card.html' import deal_card with context %}
+{% block title %}Saved deals | Locatediscount{% endblock %}
+{% block content %}
+<section class="market-page-heading"><div><span class="market-eyebrow"><i class="bi bi-heart"></i> YOUR CUSTOMER DASHBOARD</span><h1>Good finds. Kept for later.</h1><p>Your saved offers, complete details and expiry reminders, all in one place.</p></div><a class="market-text-link" href="{{ url_for('my_codes') }}">My vouchers <i class="bi bi-arrow-up-right"></i></a></section>
+<div class="saved-summary"><span><b>{{ deals|length }}</b> saved offer{{ 's' if deals|length != 1 else '' }}</span><span><i class="bi bi-bell"></i><b>{{ saved_reminder_count }}</b> ending within 3 days</span><a href="{{ url_for('deals') }}">Discover more deals →</a></div>
+<section class="market-deal-grid saved-deal-grid" aria-label="Saved deals">{% for deal in deals %}{{ deal_card(deal, saved=true) }}{% else %}<div class="market-empty"><i class="bi bi-heart"></i><h2>No saved deals yet</h2><p>Tap the heart on an offer to save its images, prices and details without generating a voucher.</p><a class="offer-primary" href="{{ url_for('deals') }}">Explore live deals</a></div>{% endfor %}</section>
+{% endblock %}

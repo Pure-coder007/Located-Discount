@@ -17,6 +17,7 @@ from email.message import EmailMessage
 import click
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from jinja2 import ChoiceLoader, FileSystemLoader
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from markupsafe import Markup
 import qrcode
 import qrcode.image.svg
@@ -24,6 +25,7 @@ from dotenv import load_dotenv
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from locatediscount.discovery import location_terms as parse_location_terms, location_match_sql
 from locatediscount.billing import redeem_code
 from locatediscount.database import (
     DATABASE_ERRORS,
@@ -614,6 +616,7 @@ def create_app(test_config=None):
             admin_attention = dict(admin_attention)
             admin_attention["total"] = sum(admin_attention.values())
         return {
+            "voucher_remaining": lambda deal: daily_voucher_remaining(get_db(), deal),
             "current_user": user,
             "current_business": business,
             "admin_attention": admin_attention,
@@ -641,20 +644,47 @@ def create_app(test_config=None):
         session.permanent = True
         if "csrf_token" not in session:
             session["csrf_token"] = secrets.token_urlsafe(32)
+        if app.config["DATABASE_URL"]:
+            for key, value in (request.view_args or {}).items():
+                if key.endswith("_id") and not session_id_is_compatible(value):
+                    abort(404)
+        if "saved_deals" not in session:
+            signed_saves = request.cookies.get("located_saved_deals")
+            if signed_saves:
+                try:
+                    saves = URLSafeTimedSerializer(app.secret_key, salt="customer-saves").loads(signed_saves, max_age=180 * 86400)
+                    if isinstance(saves, list) and len(saves) <= 50 and all(isinstance(value, str) and session_id_is_compatible(value) for value in saves):
+                        session["saved_deals"] = saves
+                except (BadSignature, SignatureExpired):
+                    pass
         expire_codes()
         if request.method == "POST" and request.endpoint != "paystack_webhook":
             require_csrf()
 
     @app.after_request
     def security_headers(response):
+        consumer = current_consumer_profile()
+        if consumer and response.mimetype == "text/html":
+            response.headers["Cache-Control"] = "private, no-store"
+        token = session.get("consumer_device_token")
+        if token:
+            response.set_cookie("located_customer_device", token, max_age=180 * 86400,
+                                httponly=True, secure=app.config["SESSION_COOKIE_SECURE"], samesite="Lax")
+        if "saved_deals" in session:
+            signed_saves = URLSafeTimedSerializer(app.secret_key, salt="customer-saves").dumps(session["saved_deals"])
+            response.set_cookie("located_saved_deals", signed_saves, max_age=180 * 86400,
+                                httponly=True, secure=app.config["SESSION_COOKIE_SECURE"], samesite="Lax")
+        elif current_consumer_profile():
+            response.delete_cookie("located_saved_deals", httponly=True,
+                                   secure=app.config["SESSION_COOKIE_SECURE"], samesite="Lax")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self)"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self' https://nominatim.openstreetmap.org; img-src 'self' data: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
+        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws://{request.host} wss://{request.host} https://nominatim.openstreetmap.org; img-src 'self' data: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        if request.path.startswith(("/consumer", "/business", "/admin", "/login", "/register", "/my-codes", "/codes/")) or request.path.endswith("/claim"):
+        if request.path.startswith(("/consumer", "/business", "/admin", "/login", "/register", "/my-codes", "/codes/", "/saved-deals", "/chat")) or request.path.endswith("/claim"):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -697,7 +727,18 @@ def create_app(test_config=None):
 
     def current_consumer_profile():
         """A customer session is separate from staff authentication."""
-        consumer_id = session.get("consumer_id")
+        consumer_id = session.get("consumer_id") or (session.get("user_id") if current_user() and current_user()["role"] == "consumer" else None)
+        if not consumer_id:
+            token = request.cookies.get("located_customer_device", "")
+            if 32 <= len(token) <= 128:
+                device = get_db().execute("""SELECT consumer_devices.id, consumer_devices.user_id FROM consumer_devices
+                    JOIN users ON users.id = consumer_devices.user_id WHERE token_hash = ? AND revoked_at IS NULL
+                    AND users.role = 'consumer' AND users.is_active = 1""", (device_token_hash(token),)).fetchone()
+                if device:
+                    consumer_id = str(device["user_id"])
+                    session["consumer_id"] = consumer_id
+                    session["consumer_device_token"] = token
+                    session["consumer_device_id"] = str(device["id"])
         if not session_id_is_compatible(consumer_id):
             session.pop("consumer_id", None)
             return None
@@ -794,7 +835,7 @@ def create_app(test_config=None):
             "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND created_at >= ?",
             (deal["id"], start),
         ).fetchone()["total"]
-        return max(0, daily_voucher_capacity(deal) - claims)
+        return max(0, min(daily_voucher_capacity(deal) - claims, deal["redemption_limit"] - deal["redemption_count"]))
 
     def opening_hours_by_day(value):
         result = {day: {"open": "", "close": "", "closed": False, "display": ""} for day in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
@@ -1176,11 +1217,14 @@ def create_app(test_config=None):
             category = matching_category_for_query(query, categories)
             if category:
                 query = ""
-        sql = """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address,
+        sql = """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address, businesses.opening_hours,
+                         (SELECT phone FROM users WHERE id = businesses.owner_id) business_phone,
+                         (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order, id LIMIT 1) image_file_name,
+                         (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order, id LIMIT 1) image_secure_url,
                          (SELECT image_file_name FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_file_name,
                          (SELECT image_secure_url FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_secure_url
                  FROM deals JOIN businesses ON businesses.id = deals.business_id
-                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
                    AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if category in categories:
@@ -1190,40 +1234,42 @@ def create_app(test_config=None):
             sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ?)"
             params.extend([f"%{query}%"] * 4)
         if area:
-            sql += " AND (businesses.city LIKE ? OR businesses.address LIKE ?)"
-            params.extend([f"%{area}%", f"%{area}%"])
+            location_terms = parse_location_terms(area)
+            location_filter = " AND (" + " OR ".join(location_match_sql() for _ in location_terms) + ")"
+            sql += location_filter
+            for term in location_terms:
+                params.extend([f"%{term}%", f"%{term}%"])
         order_by = {
             "expiring": "deals.expires_at ASC",
             "popular": "deals.redemption_count DESC, deals.created_at DESC",
         }.get(sort, "deals.created_at DESC")
         proximity_params = []
         if area:
-            # The browser supplies the user's current city/area. Within that
-            # result set, favour an exact city match before a street/area match.
-            order_by = """CASE
-                            WHEN LOWER(businesses.city) = LOWER(?) THEN 0
-                            WHEN LOWER(businesses.address) LIKE LOWER(?) THEN 1
-                            ELSE 2
-                          END, """ + order_by
-            proximity_params = [area, f"%{area}%"]
+            proximity_cases = []
+            for rank, term in enumerate(location_terms):
+                proximity_cases.append(f"WHEN {location_match_sql()} THEN {rank}")
+                proximity_params.extend([f"%{term}%", f"%{term}%"])
+            order_by = "CASE " + " ".join(proximity_cases) + f" ELSE {len(location_terms)} END, " + order_by
         db = get_db()
         count_sql = f"SELECT COUNT(*) total FROM ({sql}) filtered_deals"
         total = db.execute(count_sql, params).fetchone()["total"]
         location_fallback = False
         if area and total == 0:
             # Location should improve discovery, never hide the marketplace.
-            sql = sql.replace(" AND (businesses.city LIKE ? OR businesses.address LIKE ?)", "")
-            params = params[:-2]
+            sql = sql.replace(location_filter, "")
+            params = params[:-2 * len(location_terms)]
             total = db.execute(f"SELECT COUNT(*) total FROM ({sql}) filtered_deals", params).fetchone()["total"]
             location_fallback = True
         page, total_pages, per_page, offset = page_window(total)
         sql += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
         deals = db.execute(sql, [*params, *proximity_params, per_page, offset]).fetchall()
-        category_sql = """SELECT categories.*, COUNT(DISTINCT deals.id) AS deal_count"""
+        category_sql = """SELECT categories.*, COUNT(DISTINCT CASE WHEN businesses.id IS NOT NULL THEN deals.id END) AS deal_count"""
         category_params = []
         if area:
-            category_sql += ", SUM(CASE WHEN businesses.city LIKE ? OR businesses.address LIKE ? THEN 1 ELSE 0 END) AS nearby_deal_count"
-            category_params.extend([f"%{area}%", f"%{area}%"])
+            nearby_condition = " OR ".join(location_match_sql() for _ in location_terms)
+            category_sql += f", SUM(CASE WHEN {nearby_condition} THEN 1 ELSE 0 END) AS nearby_deal_count"
+            for term in location_terms:
+                category_params.extend([f"%{term}%", f"%{term}%"])
         else:
             category_sql += ", 0 AS nearby_deal_count"
         category_sql += """
@@ -1240,10 +1286,43 @@ def create_app(test_config=None):
             f"SELECT COUNT(*) total FROM ({category_sql}) nearby_categories", category_params
         ).fetchone()["total"]
         category_page, category_pages, category_limit, category_offset = page_window(
-            category_total, "category_page", per_page=6
+            category_total, "category_page", per_page=12
         )
         category_tiles = db.execute(
             category_sql + " LIMIT ? OFFSET ?", [*category_params, category_limit, category_offset]
+        ).fetchall()
+        popular_vendors = db.execute(
+            """SELECT businesses.id, businesses.name, businesses.address, businesses.city, businesses.category, businesses.opening_hours,
+                      users.phone,
+                      (SELECT d.title FROM deals d
+                       WHERE d.business_id = businesses.id AND d.is_active = 1
+                         AND d.is_approved = 1 AND d.expires_at > ?
+                       ORDER BY d.redemption_count DESC, d.created_at DESC LIMIT 1) AS deal_title,
+                      (SELECT di.file_name FROM deal_images di JOIN deals d ON d.id = di.deal_id
+                       WHERE d.business_id = businesses.id AND d.is_active = 1
+                         AND d.is_approved = 1 AND d.expires_at > ?
+                       ORDER BY d.redemption_count DESC, d.created_at DESC, di.sort_order LIMIT 1) AS deal_image_file_name,
+                      (SELECT di.secure_url FROM deal_images di JOIN deals d ON d.id = di.deal_id
+                       WHERE d.business_id = businesses.id AND d.is_active = 1
+                         AND d.is_approved = 1 AND d.expires_at > ?
+                       ORDER BY d.redemption_count DESC, d.created_at DESC, di.sort_order LIMIT 1) AS deal_image_secure_url,
+                      (SELECT c.image_file_name FROM categories c JOIN deals d ON d.category = c.name
+                       WHERE d.business_id = businesses.id AND d.is_active = 1
+                         AND d.is_approved = 1 AND d.expires_at > ?
+                       ORDER BY d.redemption_count DESC, d.created_at DESC LIMIT 1) AS category_image_file_name,
+                      (SELECT c.image_secure_url FROM categories c JOIN deals d ON d.category = c.name
+                       WHERE d.business_id = businesses.id AND d.is_active = 1
+                         AND d.is_approved = 1 AND d.expires_at > ?
+                       ORDER BY d.redemption_count DESC, d.created_at DESC LIMIT 1) AS category_image_secure_url,
+                      (SELECT COUNT(*) FROM deals d WHERE d.business_id = businesses.id
+                       AND d.is_active = 1 AND d.is_approved = 1 AND d.expires_at > ?) AS live_deal_count
+               FROM businesses JOIN users ON users.id = businesses.owner_id
+               WHERE businesses.is_approved = 1 AND businesses.is_blocked = 0
+                 AND EXISTS (SELECT 1 FROM deals d WHERE d.business_id = businesses.id
+                       AND d.is_active = 1 AND d.is_approved = 1 AND d.expires_at > ?)
+               ORDER BY live_deal_count DESC, LOWER(businesses.name)
+               LIMIT 30""",
+            (timestamp(), timestamp(), timestamp(), timestamp(), timestamp(), timestamp(), timestamp()),
         ).fetchall()
         return render_template(
             "index.html", deals=deals, categories=categories, query=query, area=area,
@@ -1251,6 +1330,7 @@ def create_app(test_config=None):
             page=page, total_pages=total_pages, total=total,
             category_tiles=category_tiles, category_page=category_page, category_pages=category_pages,
             category_total=category_total, location_fallback=location_fallback,
+            popular_vendors=popular_vendors,
             deal_images=(
                 "deals/local-meal.jpg", "deals/fried-chicken.jpg", "deals/market-offer.jpg",
                 "deals/clothing-sale.jpg", "deals/sneaker-deal.jpg", "deals/boutique-style.png",
@@ -1272,11 +1352,12 @@ def create_app(test_config=None):
                 selected_category = matched_category
                 query = ""
 
-        sql = """SELECT deals.*, businesses.name AS business_name, businesses.city, businesses.address,
+        sql = """SELECT deals.*, businesses.name AS business_name, businesses.city, businesses.address, businesses.opening_hours,
+                         (SELECT phone FROM users WHERE id = businesses.owner_id) business_phone,
                          (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
                          (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url
                   FROM deals JOIN businesses ON businesses.id = deals.business_id
-                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
                     AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if selected_category:
@@ -1286,23 +1367,28 @@ def create_app(test_config=None):
             sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ?)"
             params.extend([f"%{query}%"] * 4)
         if area:
-            sql += " AND (businesses.city LIKE ? OR businesses.address LIKE ?)"
-            params.extend([f"%{area}%", f"%{area}%"])
+            location_terms = parse_location_terms(area)
+            location_filter = " AND (" + " OR ".join(location_match_sql() for _ in location_terms) + ")"
+            sql += location_filter
+            for term in location_terms:
+                params.extend([f"%{term}%", f"%{term}%"])
         order_by = {
             "expiring": "deals.expires_at ASC",
             "popular": "deals.redemption_count DESC, deals.created_at DESC",
         }.get(sort, "deals.created_at DESC")
         proximity_params = []
         if area:
-            order_by = """CASE WHEN LOWER(businesses.city) = LOWER(?) THEN 0
-                                 WHEN LOWER(businesses.address) LIKE LOWER(?) THEN 1 ELSE 2 END, """ + order_by
-            proximity_params = [area, f"%{area}%"]
+            proximity_cases = []
+            for rank, term in enumerate(location_terms):
+                proximity_cases.append(f"WHEN {location_match_sql()} THEN {rank}")
+                proximity_params.extend([f"%{term}%", f"%{term}%"])
+            order_by = "CASE " + " ".join(proximity_cases) + f" ELSE {len(location_terms)} END, " + order_by
         db = get_db()
         total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
         location_fallback = False
         if area and total == 0:
-            sql = sql.replace(" AND (businesses.city LIKE ? OR businesses.address LIKE ?)", "")
-            params = params[:-2]
+            sql = sql.replace(location_filter, "")
+            params = params[:-2 * len(location_terms)]
             total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
             location_fallback = True
         page, total_pages, per_page, offset = page_window(total)
@@ -1349,7 +1435,7 @@ def create_app(test_config=None):
             add_suggestion(row["city"], "area", row["city"], "City / area")
         all_deals = db.execute(
             """SELECT DISTINCT deals.title FROM deals JOIN businesses ON businesses.id = deals.business_id
-               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0
                  AND deals.title LIKE ? ORDER BY LOWER(deals.title) LIMIT 4""",
             (timestamp(), like_query),
@@ -1513,7 +1599,7 @@ def create_app(test_config=None):
         # owners pass through a redirect before their workspace can render.
         if role == "business":
             return business_dashboard()
-        return redirect(url_for({"consumer": "home", "business": "business_dashboard", "admin": "admin_dashboard"}[role]))
+        return redirect(url_for({"consumer": "saved_deals", "business": "business_dashboard", "admin": "admin_dashboard"}[role]))
 
     @app.route("/deals/<string:deal_id>")
     def deal_detail(deal_id):
@@ -1522,7 +1608,7 @@ def create_app(test_config=None):
         consumer = current_consumer_profile()
         is_favorite = bool(consumer and get_db().execute(
             "SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)
-        ).fetchone())
+        ).fetchone()) or deal_id in session.get("saved_deals", [])
         images = get_db().execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
         daily_remaining = daily_voucher_remaining(get_db(), deal)
         return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite,
@@ -1531,9 +1617,8 @@ def create_app(test_config=None):
                                opening_hours=opening_hours_by_day(deal["opening_hours"]))
 
     @app.route("/consumer")
-    @roles_required("consumer")
     def consumer_dashboard():
-        return redirect(url_for("home"))
+        return redirect(url_for("saved_deals"))
 
     @app.route("/consumer/codes")
     def legacy_consumer_codes():
@@ -1582,22 +1667,26 @@ def create_app(test_config=None):
         if not 1 <= quantity <= 10:
             flash("Choose between 1 and 10 items for this voucher.", "danger")
             return render_template("claim_code.html", deal=deal, consumer=consumer), 400
+        stars = request.form.get("stars", "").strip()
+        if stars and stars not in {"1", "2", "3", "4", "5"}:
+            flash("Choose a rating from one to five stars, or leave it blank.", "danger")
+            return render_template("claim_code.html", deal=deal, consumer=consumer), 400
         if not consumer:
             if not 2 <= len(name) <= 80 or not PHONE_RE.match(phone) or len(area) > 80:
                 flash("Enter your name, a valid phone number, and an optional area up to 80 characters.", "danger")
                 return render_template("claim_code.html", deal=deal, consumer=None), 400
         try:
             db.execute("BEGIN IMMEDIATE")
+            if app.config["DATABASE_URL"]:
+                db.execute("SELECT id FROM deals WHERE id = ? FOR UPDATE", (deal_id,))
             deal = db.execute(
-                """SELECT deals.* FROM deals JOIN businesses ON businesses.id = deals.business_id
+                """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address FROM deals JOIN businesses ON businesses.id = deals.business_id
                  WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
                      AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
                 (deal_id, timestamp()),
             ).fetchone()
             if not deal or deal["redemption_count"] >= deal["redemption_limit"]:
                 raise ValueError("This deal is no longer available.")
-            if daily_voucher_remaining(db, deal) < 1:
-                raise ValueError("All of today's vouchers have been claimed. Please try again tomorrow.")
             consumer_id = consumer["id"] if consumer else create_consumer_profile(db, name, phone, area)
             device_id = ensure_consumer_device(db, consumer_id)
             existing = db.execute(
@@ -1607,8 +1696,8 @@ def create_app(test_config=None):
             if existing:
                 db.commit()
                 session["consumer_id"] = consumer_id
-                flash("This device has already generated a voucher for this deal. Choose a different deal to claim.", "info")
-                return redirect(url_for("deals"))
+                flash("You already have a voucher for this deal. Here it is; each device can generate one voucher per deal.", "info")
+                return redirect(url_for("code_detail", code_id=existing["id"]))
             if deal["max_vouchers_per_customer"]:
                 claimed = db.execute(
                     "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND user_id = ?",
@@ -1616,6 +1705,8 @@ def create_app(test_config=None):
                 ).fetchone()["total"]
                 if claimed >= deal["max_vouchers_per_customer"]:
                     raise ValueError("You have reached this deal's voucher limit per customer.")
+            if daily_voucher_remaining(db, deal) < 1:
+                raise ValueError("All of today's vouchers have been claimed. Please try again tomorrow.")
             reservation = db.execute(
                 """INSERT INTO device_deal_claims (deal_id, device_id, created_at)
                    VALUES (?, ?, ?) ON CONFLICT (deal_id, device_id) DO NOTHING""",
@@ -1626,6 +1717,7 @@ def create_app(test_config=None):
             expires = min(parse_timestamp(deal["expires_at"]), utcnow() + timedelta(days=7))
             for _ in range(5):
                 value = code_value()
+                db.execute("SAVEPOINT voucher_code")
                 try:
                     cursor = db.execute(
                         """INSERT INTO codes
@@ -1640,11 +1732,17 @@ def create_app(test_config=None):
                         "UPDATE device_deal_claims SET code_id = ? WHERE deal_id = ? AND device_id = ?",
                         (cursor.lastrowid, deal_id, device_id),
                     )
+                    if stars:
+                        db.execute("""INSERT INTO deal_ratings(deal_id, user_id, stars, updated_at) VALUES (?, ?, ?, ?)
+                                   ON CONFLICT(deal_id, user_id) DO UPDATE SET stars = excluded.stars, updated_at = excluded.updated_at""",
+                                   (deal_id, consumer_id, int(stars), timestamp()))
                     db.commit()
                     session["consumer_id"] = consumer_id
                     flash("Your voucher is ready. Show it to this business in-store.", "success")
                     return redirect(url_for("code_detail", code_id=cursor.lastrowid))
                 except INTEGRITY_ERRORS:
+                    db.execute("ROLLBACK TO SAVEPOINT voucher_code")
+                    db.execute("RELEASE SAVEPOINT voucher_code")
                     continue
             raise ValueError("Could not generate a secure code. Please retry.")
         except ConsumerProfileConflict as error:
@@ -1658,6 +1756,8 @@ def create_app(test_config=None):
             return render_template("claim_code.html", deal=deal, consumer=None), 409
         except ValueError as error:
             db.rollback(); flash(str(error), "danger")
+            if str(error) == "This deal is no longer available.":
+                return redirect(url_for("home"))
             if str(error) == "This device has already generated a voucher for this deal.":
                 return redirect(url_for("deals"))
         return redirect(url_for("deal_detail", deal_id=deal_id))
@@ -1713,10 +1813,30 @@ def create_app(test_config=None):
     @app.post("/deals/<string:deal_id>/favorite")
     def toggle_favorite(deal_id):
         consumer = current_consumer_profile()
-        if not consumer:
-            flash("Claim a deal first to create your private customer profile.", "info")
-            return redirect(url_for("claim_code", deal_id=deal_id))
         db = get_db()
+        offer = db.execute("""SELECT deals.*, businesses.is_approved business_approved, businesses.is_blocked
+                            FROM deals JOIN businesses ON businesses.id = deals.business_id
+                            WHERE deals.id = ? AND deals.deleted_at IS NULL""", (deal_id,)).fetchone()
+        if not offer:
+            abort(404)
+        already_saved = deal_id in session.get("saved_deals", []) or bool(consumer and db.execute(
+            "SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)).fetchone())
+        if not already_saved and (not offer["is_active"] or not offer["is_approved"] or not offer["business_approved"]
+                                  or offer["is_blocked"] or parse_timestamp(offer["expires_at"]) <= utcnow()):
+            flash("This offer is not available to save. Explore the latest live deals instead.", "info")
+            return redirect(url_for("deals"))
+        if not consumer:
+            saved = session.get("saved_deals", [])
+            if deal_id in saved:
+                saved.remove(deal_id)
+            else:
+                if len(saved) >= 50:
+                    flash("Your saved list is full. Remove a deal before saving another.", "warning")
+                    return redirect(url_for("saved_deals"))
+                saved.append(deal_id)
+            session["saved_deals"] = saved
+            flash("Your saved deals have been updated.", "success")
+            return redirect(url_for("saved_deals"))
         exists = db.execute("SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)).fetchone()
         if exists:
             db.execute("DELETE FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id))
@@ -1724,7 +1844,19 @@ def create_app(test_config=None):
         else:
             db.execute("INSERT INTO favorites (user_id, deal_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", (consumer["id"], deal_id, timestamp()))
             flash("Saved to your private deal list.", "success")
-        return redirect(url_for("deal_detail", deal_id=deal_id))
+        return redirect(url_for("saved_deals"))
+
+    @app.get("/about")
+    def about_page():
+        return render_template("platform_info.html", info_page="about")
+
+    @app.get("/services")
+    def services_page():
+        return render_template("platform_info.html", info_page="services")
+
+    @app.get("/contact")
+    def contact_page():
+        return render_template("platform_info.html", info_page="contact")
 
     @app.route("/vendors")
     def vendors():
@@ -1775,10 +1907,15 @@ def create_app(test_config=None):
         ).fetchone()
         if not business:
             abort(404)
-        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
+        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND deleted_at IS NULL AND redemption_count < redemption_limit AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
         deal_page, deal_pages, per_page, deal_offset = page_window(deal_total, "deal_page")
         deals = db.execute(
-            "SELECT * FROM deals WHERE business_id = ? AND is_active = 1 AND expires_at > ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            """SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours,
+                      users.phone business_phone FROM deals JOIN businesses ON businesses.id = deals.business_id
+               JOIN users ON users.id = businesses.owner_id
+               WHERE deals.business_id = ? AND deals.is_active = 1 AND deals.is_approved = 1
+                 AND deals.deleted_at IS NULL AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
+               ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
             (business_id, timestamp(), per_page, deal_offset),
         ).fetchall()
         return render_template("vendor_detail.html", business=business, deals=deals,
@@ -2498,12 +2635,14 @@ def create_app(test_config=None):
         if status not in {"pending", "live", "all"}:
             status = "pending"
         where = ""
+        filter_params = []
         if status == "pending":
             where = "WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved'))"
         elif status == "live":
-            where = "WHERE deals.is_approved = 1 AND deals.is_active = 1"
+            where = "WHERE deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ?"
+            filter_params = [timestamp()]
         total = db.execute(
-            f"SELECT COUNT(*) AS total FROM deals {where}"
+            f"SELECT COUNT(*) AS total FROM deals {where}", filter_params
         ).fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
         deals = db.execute(
@@ -2511,7 +2650,7 @@ def create_app(test_config=None):
                        businesses.is_approved AS business_approved, businesses.is_blocked
                 FROM deals JOIN businesses ON businesses.id = deals.business_id
                 {where} ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
-            (per_page, offset),
+            (*filter_params, per_page, offset),
         ).fetchall()
         return render_template("admin_deals.html", deals=deals, status=status, page=page,
                                total_pages=total_pages, total=total, fee=redemption_fee(db))
@@ -3074,7 +3213,15 @@ def create_app(test_config=None):
     with app.app_context():
         init_db()
 
+    from locatediscount.community import register_community
+    register_community(app, get_db, current_user, current_consumer_profile, business_for_user,
+                       roles_required, timestamp, utcnow, parse_timestamp, redemption_fee, record_admin_action,
+                       lambda deal: daily_voucher_remaining(get_db(), deal))
     return app
 
 
 app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)

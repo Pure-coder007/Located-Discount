@@ -46,10 +46,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Number.isNaN(target) && label) {
       const tick = () => {
         const remaining = Math.max(0, target - Date.now());
-        const hours = Math.floor(remaining / 3600000);
-        const minutes = Math.floor((remaining % 3600000) / 60000);
-        const seconds = Math.floor((remaining % 60000) / 1000);
-        label.textContent = remaining ? `Ends in ${hours}h ${minutes}m ${seconds}s` : "Deal ended";
+        const days = Math.ceil(remaining / 86400000);
+        label.textContent = remaining ? `${days} day${days === 1 ? '' : 's'} to go` : "Deal ended";
       };
       tick();
       window.setInterval(tick, 1000);

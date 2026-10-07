@@ -1,0 +1,11 @@
+<button type="button" class="support-launcher" data-support-open aria-controls="platform-support" aria-expanded="false"><span class="support-launcher-icon"><i class="bi bi-chat-heart-fill"></i><b></b></span><span>Ask Locatediscount<small>Deals, vouchers & help</small></span></button>
+<section id="platform-support" class="support-panel" data-support-panel hidden role="dialog" aria-modal="false" aria-label="Locatediscount platform guide" data-csrf="{{ csrf_token }}" data-area="{{ request.args.get('area', '') }}">
+  <header class="support-header"><span class="support-avatar"><i class="bi bi-stars"></i></span><div><h2>Locatediscount guide</h2><p><b></b> Connected to the live catalogue</p></div><button type="button" data-support-close aria-label="Close support"><i class="bi bi-x-lg"></i></button></header>
+  <div class="support-history" data-support-history role="log" aria-live="polite" aria-relevant="additions">
+    <div class="support-bubble"><span class="support-message-label">YOUR LOCAL DEALS GUIDE</span><p>Hello! Let’s find your next great deal.</p><p>Ask about live offers, a business’s contact details, vouchers, saved deals or how the platform works. I look up current public information each time you ask.</p></div>
+    <div class="support-suggestions" data-support-suggestions><button type="button">Latest deals</button><button type="button">Deals near me</button><button type="button">How do I generate a voucher?</button><button type="button">Saved deals and reminders</button><button type="button">Voucher restrictions</button><button type="button">Contact admin</button></div>
+  </div>
+  <p class="support-status" data-support-status role="status"></p>
+  <form class="support-compose" data-support-form><label class="visually-hidden" for="support-question">Your enquiry</label><input id="support-question" name="question" maxlength="500" required placeholder="Ask about a deal or how it works…" autocomplete="off"><button type="submit" aria-label="Send enquiry"><i class="bi bi-arrow-up"></i></button></form>
+  <footer class="support-footer"><span>Personal admin assistance<small>+234 803 733 8514</small></span><a data-support-whatsapp href="https://wa.me/2348037338514" target="_blank" rel="noopener noreferrer"><i class="bi bi-whatsapp"></i>Chat with admin</a></footer>
+</section>
