@@ -147,7 +147,7 @@ header.reference-nav .home-logo-mark{width:168px!important;height:84px!important
 }
 
 /* Fit the complete supplied wordmark without cropping. */
-header.reference-nav .home-logo-mark{width:148px!important;height:74px!important;object-fit:contain!important}
+header.reference-nav .home-logo-mark{width:132px!important;height:70px!important;object-fit:contain!important}
 .portal-brand-logo{width:132px!important;height:70px!important;object-fit:contain!important}
-.footer-logo img,.shared-home-footer .footer-logo img{width:148px!important;height:80px!important;object-fit:contain!important}
-@media(max-width:650px){header.reference-nav .home-logo-mark{width:124px!important;height:62px!important}}
+.footer-logo img,.shared-home-footer .footer-logo img{width:132px!important;height:70px!important;object-fit:contain!important}
+@media(max-width:650px){header.reference-nav .home-logo-mark{width:132px!important;height:70px!important}}
