@@ -43,10 +43,8 @@ def redeem_code(db, business, code_value, redeemed_by, now, fee):
         (balance_after, int(balance_after < business["low_balance_threshold"]), business["id"]),
     )
     db.execute(
-        """UPDATE deals SET redemption_count = redemption_count + 1,
-           is_active = CASE WHEN redemption_count + 1 >= redemption_limit THEN 0 ELSE is_active END
-           WHERE id = ?""",
-        (code["deal_id"],),
+        "UPDATE deals SET redemption_count = redemption_count + ? WHERE id = ?",
+        (code["quantity"], code["deal_id"]),
     )
     reference = "RED-" + secrets.token_hex(8).upper()
     db.execute(

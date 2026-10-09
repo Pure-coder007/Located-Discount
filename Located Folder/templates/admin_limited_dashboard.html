@@ -1,0 +1,4 @@
+{% extends 'portal_base.html' %}
+{% block portal_title %}Your workspace{% endblock %}
+{% block portal_subtitle %}Use the areas assigned to you by the primary administrator.{% endblock %}
+{% block portal_content %}<section class="portal-panel p-6"><h2 class="portal-heading">Assigned access</h2><ul>{% for key, label in admin_permission_choices.items() %}{% if admin_can(key) %}<li>{{ label }}</li>{% endif %}{% endfor %}</ul><p>Open an assigned area from the navigation. Contact the primary administrator if you need additional access.</p></section>{% endblock %}

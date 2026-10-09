@@ -16,7 +16,7 @@
       <div class="voucher-qr" aria-label="QR voucher for {{ code.value }}">{{ code.value|qr_svg }}</div>
       <p class="voucher-code">{{ code.value }}</p>
       <p class="voucher-instruction">Show this code to the business before you pay.</p>
-      <div class="voucher-total"><span>Pay at the shop</span><strong>₦{{ '{:,.0f}'.format((code.unit_price_kobo / 100) * code.quantity) }}</strong><small>{{ code.quantity }} item{% if code.quantity != 1 %}s{% endif %} · ₦{{ '{:,.0f}'.format(code.unit_price_kobo / 100) }} each</small></div>
+      <div class="voucher-total"><span>Pay at the shop</span><strong>₦{{ '{:,.2f}'.format((code.unit_price_kobo / 100) * code.quantity) }}</strong><small>{{ code.quantity }} voucher{% if code.quantity != 1 %}s{% endif %} · ₦{{ '{:,.2f}'.format(code.unit_price_kobo / 100) }} each</small></div>
       <p class="voucher-expiry"><i class="bi bi-clock"></i> Valid until {{ code.expires_at[:16].replace('T', ' ') }} UTC</p>
       {% elif code.status == 'redeemed' %}
       <div class="voucher-result-icon"><i class="bi bi-check2"></i></div>

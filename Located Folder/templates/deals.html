@@ -1,15 +1,16 @@
 {% extends 'base.html' %}
 {% block title %}{% if selected_category %}{{ selected_category }} deals{% else %}Local deals{% endif %} | Locatediscount{% endblock %}
+{% block extra_head %}<script src="{{ url_for('static', filename='js/home-search-suggestions.js') }}" defer></script>{% endblock %}
 {% block content %}
 <section class="public-page-hero">
   <div>
     <p class="app-label">Local offers</p>
     <h1 class="mt-2 font-extrabold">{% if selected_category %}{{ selected_category }} deals{% else %}Deals worth claiming nearby.{% endif %}</h1>
     <p class="mt-2 max-w-2xl text-sm text-slate-500">Browse vendor offers by category, search, or location.</p>
-    <form class="public-search" method="get">
-      <input name="q" value="{{ query }}" placeholder="Search deals or vendors">
-      <input name="area" value="{{ area }}" placeholder="City or area">
-      <select name="category" aria-label="Filter by category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>
+    <form class="public-search" method="get" data-home-search>
+      <div class="catalogue-search-field"><input id="home-search-query" name="q" value="{{ query }}" placeholder="Search deals or vendors" autocomplete="off"><div id="home-search-suggestions" class="home-search-suggestions" hidden></div></div>
+      <input id="home-search-area" name="area" value="{{ area }}" placeholder="City or area">
+      <select id="home-search-category" name="category" aria-label="Filter by category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>
       <button type="submit"><i class="bi bi-search"></i> Find deals</button>
     </form>
   </div>

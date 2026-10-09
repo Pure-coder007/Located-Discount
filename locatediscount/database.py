@@ -389,6 +389,9 @@ class PostgresDatabase:
         # psycopg treats every percent sign in the SQL text as the start of a
         # parameter placeholder. Escape literal percent signs first (such as
         # ``LIKE 'PSTK-%'``), then translate the application's SQLite qmarks.
+        # Midnight visibility comparisons always use UTC, regardless of the
+        # PostgreSQL session's configured timezone.
+        query = query.replace("CAST(CURRENT_TIMESTAMP AS TEXT)", "CAST(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AS TEXT)")
         query = query.replace("BEGIN IMMEDIATE", "BEGIN").replace("%", "%%").replace("?", "%s")
         table_match = re.match(r"\s*INSERT\s+INTO\s+([a-z_]+)\s*\(", query, re.IGNORECASE)
         table = table_match.group(1).lower() if table_match else ""

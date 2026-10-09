@@ -123,7 +123,7 @@ class CommunityTests(unittest.TestCase):
         with other.session_transaction() as state:
             token = state['csrf_token']
         exhausted = other.post(f'/deals/{self.deal}/claim', data={'csrf_token': token, 'name': 'Another customer', 'phone': '+2348098765432'}, follow_redirects=True)
-        self.assertIn(b"All of today", exhausted.data)
+        self.assertIn(b"exceeds the vouchers remaining", exhausted.data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM codes').fetchone()[0], 3)
             self.assertIsNone(db.execute("SELECT id FROM users WHERE phone = '+2348098765432'").fetchone())
@@ -169,7 +169,13 @@ class CommunityTests(unittest.TestCase):
                     db.execute(f"UPDATE deals SET {field}=? WHERE id=?", (value, self.deal))
                 page = self.client.get(f'/vendors/{self.business}')
                 self.assertEqual(page.status_code, 200)
-                self.assertNotIn(b'data-offer-card', page.data)
+                if field == 'redemption_count':
+                    self.assertIn(b'SOLD OUT', page.data)
+                    with sqlite3.connect(self.path) as db:
+                        db.execute("UPDATE sold_out_deals SET hide_at = '2000-01-01 23:00:00'")
+                    self.assertNotIn(b'data-offer-card', self.client.get(f'/vendors/{self.business}').data)
+                else:
+                    self.assertNotIn(b'data-offer-card', page.data)
 
     def test_location_handles_full_addresses_and_punctuation(self):
         for area in ('12 Allen Avenue Ikeja Lagos Nigeria', 'Allen-Avenue, Ikeja', 'Ikeja Local Government Area', ',,,'):
@@ -290,3 +296,114 @@ class CommunityTests(unittest.TestCase):
         self.login_as(self.admin)
         self.assertNotIn(b'data-chat-history', self.client.get('/chat').data)
         self.assertIn(b'data-chat-history', self.client.get(f'/chat?business_id={self.business}').data)
+
+    def test_actual_stock_large_quantity_midnight_and_existing_redemption(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute('UPDATE deals SET discount_price_kobo=1050, regular_price_kobo=1500')
+        with self.client.session_transaction() as state:
+            state['consumer_id'] = self.consumer
+        response = self.post(f'/deals/{self.deal}/claim', {'quantity': '100'})
+        self.assertIn('/codes/', response.headers['Location'])
+        self.assertIn('₦1,050.00'.encode(), self.client.get(response.headers['Location']).data)
+        live = self.client.get('/deals')
+        self.assertIn(b'SOLD OUT', live.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT quantity FROM codes').fetchone()[0], 100)
+            hidden_at = db.execute('SELECT hide_at FROM sold_out_deals').fetchone()[0]
+            self.assertTrue(hidden_at.endswith('23:00:00'))
+            db.execute("UPDATE sold_out_deals SET hide_at='2000-01-01 23:00:00'")
+        self.assertNotIn(b'data-offer-card', self.client.get('/deals').data)
+        self.login_as(self.owner)
+        with sqlite3.connect(self.path) as db:
+            value = db.execute('SELECT value FROM codes').fetchone()[0]
+        redeemed = self.post('/business/redeem', {'code': value}, follow=True)
+        self.assertIn(b'Voucher validated', redeemed.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT redemption_count FROM deals').fetchone()[0], 100)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 1)
+
+    def test_sub_admin_permissions_enforced_and_updated(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO users(id,email,phone,password_hash,role,name,created_at,created_by_admin) VALUES ('staff','staff@example.test','+2348055555555','unused','admin','Staff',?,?)", (timestamp(), self.admin))
+            db.execute("INSERT INTO admin_permissions VALUES ('staff', 'categories')")
+        self.login_as('staff')
+        self.assertEqual(self.client.get('/admin/categories').status_code, 200)
+        self.assertEqual(self.client.get('/admin/tags').status_code, 200)
+        for path in ('/admin/team', '/admin/users', '/admin/businesses', '/admin/deals', '/admin/analytics', '/admin/audit-logs', '/chat', '/chat/unread'):
+            self.assertEqual(self.client.get(path).status_code, 403, path)
+        page = self.client.get('/admin')
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn(b'Wallet balances', page.data)
+        self.assertNotIn(b'Chat with Admin', page.data)
+        self.assertEqual(self.post(f'/admin/businesses/{self.business}/adjust-wallet', {'amount': '1000'}).status_code, 403)
+        self.login_as(self.admin)
+        self.assertEqual(self.post('/admin/team/staff/permissions', {'permissions': ['deals', 'chat', 'finance']}).status_code, 302)
+        self.login_as('staff')
+        self.assertEqual(self.client.get('/admin/deals').status_code, 200)
+        self.assertEqual(self.client.get('/chat').status_code, 200)
+        self.assertEqual(self.client.get('/admin/categories').status_code, 403)
+        self.assertEqual(self.client.get('/admin').status_code, 200)
+
+    def test_category_tag_search_synonyms_and_admin_crud(self):
+        self.login_as(self.admin)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
+        self.post('/admin/tags', {'category_id': 'shopping', 'name': 'Mechanic workshop', 'keywords': 'drive, car, repair'})
+        with sqlite3.connect(self.path) as db:
+            tag = db.execute('SELECT id FROM category_tags').fetchone()[0]
+            db.execute('INSERT INTO deal_tags VALUES (?,?)', (self.deal, tag))
+        for term in ('drive', 'repair', 'Mechanic workshop'):
+            page = self.client.get('/deals', query_string={'q': term})
+            self.assertIn(b'Local offer', page.data)
+        suggestions = self.client.get('/search/suggestions?q=drive').json['suggestions']
+        self.assertTrue(any(row['label'] == 'Mechanic workshop' for row in suggestions))
+        self.post('/admin/tags', {'tag_id': tag, 'category_id': 'shopping', 'name': 'Furniture', 'keywords': 'dining, table'})
+        self.assertIn(b'Local offer', self.client.get('/deals?q=dining').data)
+        self.post(f'/admin/tags/{tag}/delete')
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM deal_tags').fetchone()[0], 0)
+
+    def test_public_navigation_gallery_and_customer_only_assistant(self):
+        with sqlite3.connect(self.path) as db:
+            for order in (1, 2):
+                db.execute("INSERT INTO deal_images(deal_id,file_name,sort_order,created_at) VALUES (?,?,?,?)", (self.deal, f'photo{order}.jpg', order, timestamp()))
+        home = self.client.get('/')
+        self.assertNotIn(b'THE LOCAL EDIT', home.data)
+        self.assertNotIn(b'offer-thumbnails', home.data)
+        self.assertIn(b'Ask Locatediscount', home.data)
+        self.assertNotIn(b'>About Us<', home.data)
+        self.assertNotIn(b'<h3>Explore</h3>', home.data)
+        self.assertNotIn(b'<h3>Business</h3>', home.data)
+        detail = self.client.get(f'/deals/{self.deal}')
+        self.assertIn(b'deal-gallery-thumbs', detail.data)
+        self.assertNotIn(b'Ask Locatediscount', detail.data)
+        for user in (self.admin, self.owner):
+            self.login_as(user)
+            self.assertNotIn(b'Ask Locatediscount', self.client.get('/').data)
+
+    def test_vendor_tag_selection_validates_category_and_preserves_on_edit(self):
+        with sqlite3.connect(self.path) as db:
+            for key, name in (('shopping', 'Shopping'), ('beauty', 'Beauty')):
+                db.execute('INSERT INTO categories(id,name,created_at) VALUES (?,?,?)', (key, name, timestamp()))
+            db.execute("INSERT INTO category_tags(id,category_id,name) VALUES ('shop-tag','shopping','Furniture')")
+            db.execute("INSERT INTO category_tags(id,category_id,name) VALUES ('beauty-tag','beauty','Hair')")
+        self.login_as(self.owner)
+        payload = {'title': 'Furniture offer', 'description': 'A discount on new furniture.', 'terms': 'Valid in store only.',
+                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000',
+                   'redemption_limit': '50', 'expires_at': '2030-12-31T17:00', 'tags': ['beauty-tag']}
+        invalid = self.post('/business/deals/new', payload, follow=True)
+        self.assertIn(b'Choose tags from the selected category', invalid.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM deals WHERE title='Furniture offer'").fetchone()[0], 0)
+        payload['tags'] = ['shop-tag']
+        valid = self.post('/business/deals/new', payload)
+        self.assertEqual(valid.status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            deal_id = db.execute("SELECT id FROM deals WHERE title='Furniture offer'").fetchone()[0]
+            self.assertEqual(db.execute('SELECT tag_id FROM deal_tags WHERE deal_id=?', (deal_id,)).fetchone()[0], 'shop-tag')
+        self.assertIn(b'value="shop-tag" checked', self.client.get(f'/business/deals/{deal_id}/edit').data)
+        payload['tags'] = ['beauty-tag']
+        invalid_edit = self.post(f'/business/deals/{deal_id}/edit', payload, follow=True)
+        self.assertIn(b'Choose tags from the selected category', invalid_edit.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT tag_id FROM deal_tags WHERE deal_id=?', (deal_id,)).fetchone()[0], 'shop-tag')

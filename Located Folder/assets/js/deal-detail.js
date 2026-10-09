@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
       openLightbox(url);
       return;
     }
-    if (main) main.src = url;
+    if (main) { main.src = url; main.dataset.galleryImage = url; }
     page.querySelectorAll(".deal-gallery-thumb").forEach((item) => item.classList.toggle("is-selected", item === target));
     openLightbox(url);
   });

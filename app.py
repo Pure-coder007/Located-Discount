@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from locatediscount.corrections import register_corrections, stock_remaining
 from locatediscount.discovery import location_terms as parse_location_terms, location_match_sql
 from locatediscount.billing import redeem_code
 from locatediscount.database import (
@@ -614,10 +615,15 @@ def create_app(test_config=None):
                         WHERE kind = 'topup' AND status = 'pending' AND reference NOT LIKE 'PSTK-%') AS topups"""
             ).fetchone()
             admin_attention = dict(admin_attention)
+            for key, permission in (("businesses", "businesses"), ("deals", "deals"), ("topups", "finance")):
+                if not admin_can(permission):
+                    admin_attention[key] = 0
             admin_attention["total"] = sum(admin_attention.values())
         return {
-            "voucher_remaining": lambda deal: daily_voucher_remaining(get_db(), deal),
+            "voucher_remaining": lambda deal: voucher_stock_remaining(get_db(), deal),
             "current_user": user,
+            "admin_can": admin_can,
+            "admin_permission_choices": permission_choices,
             "current_business": business,
             "admin_attention": admin_attention,
             "business_notification_count": business_notification_count,
@@ -822,20 +828,8 @@ def create_app(test_config=None):
             return None
         return int(amount * 100)
 
-    def daily_voucher_capacity(deal, day=None):
-        """Return an automatic daily allocation that resets at UTC midnight."""
-        day = day or utcnow().date()
-        base = max(1, min(10, math.ceil(deal["redemption_limit"] / 10)))
-        variation = ((int(hashlib.sha256(str(deal["id"]).encode()).hexdigest()[:8], 16) + day.toordinal()) % 3) - 1
-        return max(1, base + variation)
-
-    def daily_voucher_remaining(db, deal):
-        start = timestamp(datetime.combine(utcnow().date(), datetime.min.time(), tzinfo=timezone.utc))
-        claims = db.execute(
-            "SELECT COUNT(*) AS total FROM codes WHERE deal_id = ? AND created_at >= ?",
-            (deal["id"], start),
-        ).fetchone()["total"]
-        return max(0, min(daily_voucher_capacity(deal) - claims, deal["redemption_limit"] - deal["redemption_count"]))
+    def voucher_stock_remaining(db, deal):
+        return stock_remaining(db, deal)
 
     def opening_hours_by_day(value):
         result = {day: {"open": "", "close": "", "closed": False, "display": ""} for day in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
@@ -1214,7 +1208,7 @@ def create_app(test_config=None):
         sort = request.args.get("sort", "newest")
         categories = category_names()
         if not category:
-            category = matching_category_for_query(query, categories)
+            category = matching_category_for_query(query, categories) if not tag_query_matches(query) else ""
             if category:
                 query = ""
         sql = """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address, businesses.opening_hours,
@@ -1224,15 +1218,15 @@ def create_app(test_config=None):
                          (SELECT image_file_name FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_file_name,
                          (SELECT image_secure_url FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_secure_url
                  FROM deals JOIN businesses ON businesses.id = deals.business_id
-                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
+                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                    AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if category in categories:
             sql += " AND deals.category = ?"
             params.append(category)
         if query:
-            sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ?)"
-            params.extend([f"%{query}%"] * 4)
+            sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ? OR EXISTS (SELECT 1 FROM deal_tags dt JOIN category_tags ct ON ct.id = dt.tag_id WHERE dt.deal_id = deals.id AND (LOWER(ct.name) LIKE LOWER(?) OR LOWER(ct.keywords) LIKE LOWER(?))))"
+            params.extend([f"%{query}%"] * 6)
         if area:
             location_terms = parse_location_terms(area)
             location_filter = " AND (" + " OR ".join(location_match_sql() for _ in location_terms) + ")"
@@ -1275,7 +1269,7 @@ def create_app(test_config=None):
         category_sql += """
             FROM categories
             LEFT JOIN deals ON deals.category = categories.name
-                AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
             LEFT JOIN businesses ON businesses.id = deals.business_id
                 AND businesses.is_approved = 1 AND businesses.is_blocked = 0
             WHERE categories.is_active = 1
@@ -1291,46 +1285,15 @@ def create_app(test_config=None):
         category_tiles = db.execute(
             category_sql + " LIMIT ? OFFSET ?", [*category_params, category_limit, category_offset]
         ).fetchall()
-        popular_vendors = db.execute(
-            """SELECT businesses.id, businesses.name, businesses.address, businesses.city, businesses.category, businesses.opening_hours,
-                      users.phone,
-                      (SELECT d.title FROM deals d
-                       WHERE d.business_id = businesses.id AND d.is_active = 1
-                         AND d.is_approved = 1 AND d.expires_at > ?
-                       ORDER BY d.redemption_count DESC, d.created_at DESC LIMIT 1) AS deal_title,
-                      (SELECT di.file_name FROM deal_images di JOIN deals d ON d.id = di.deal_id
-                       WHERE d.business_id = businesses.id AND d.is_active = 1
-                         AND d.is_approved = 1 AND d.expires_at > ?
-                       ORDER BY d.redemption_count DESC, d.created_at DESC, di.sort_order LIMIT 1) AS deal_image_file_name,
-                      (SELECT di.secure_url FROM deal_images di JOIN deals d ON d.id = di.deal_id
-                       WHERE d.business_id = businesses.id AND d.is_active = 1
-                         AND d.is_approved = 1 AND d.expires_at > ?
-                       ORDER BY d.redemption_count DESC, d.created_at DESC, di.sort_order LIMIT 1) AS deal_image_secure_url,
-                      (SELECT c.image_file_name FROM categories c JOIN deals d ON d.category = c.name
-                       WHERE d.business_id = businesses.id AND d.is_active = 1
-                         AND d.is_approved = 1 AND d.expires_at > ?
-                       ORDER BY d.redemption_count DESC, d.created_at DESC LIMIT 1) AS category_image_file_name,
-                      (SELECT c.image_secure_url FROM categories c JOIN deals d ON d.category = c.name
-                       WHERE d.business_id = businesses.id AND d.is_active = 1
-                         AND d.is_approved = 1 AND d.expires_at > ?
-                       ORDER BY d.redemption_count DESC, d.created_at DESC LIMIT 1) AS category_image_secure_url,
-                      (SELECT COUNT(*) FROM deals d WHERE d.business_id = businesses.id
-                       AND d.is_active = 1 AND d.is_approved = 1 AND d.expires_at > ?) AS live_deal_count
-               FROM businesses JOIN users ON users.id = businesses.owner_id
-               WHERE businesses.is_approved = 1 AND businesses.is_blocked = 0
-                 AND EXISTS (SELECT 1 FROM deals d WHERE d.business_id = businesses.id
-                       AND d.is_active = 1 AND d.is_approved = 1 AND d.expires_at > ?)
-               ORDER BY live_deal_count DESC, LOWER(businesses.name)
-               LIMIT 30""",
-            (timestamp(), timestamp(), timestamp(), timestamp(), timestamp(), timestamp(), timestamp()),
-        ).fetchall()
+        regions = [row["city"] for row in db.execute(
+            "SELECT DISTINCT city FROM businesses WHERE is_approved = 1 AND is_blocked = 0 ORDER BY city"
+        ).fetchall()]
         return render_template(
-            "index.html", deals=deals, categories=categories, query=query, area=area,
+            "index.html", deals=deals, categories=categories, query=query, area=area, regions=regions,
             selected_category=category, selected_sort=sort, consumer=current_consumer_profile(),
             page=page, total_pages=total_pages, total=total,
             category_tiles=category_tiles, category_page=category_page, category_pages=category_pages,
             category_total=category_total, location_fallback=location_fallback,
-            popular_vendors=popular_vendors,
             deal_images=(
                 "deals/local-meal.jpg", "deals/fried-chicken.jpg", "deals/market-offer.jpg",
                 "deals/clothing-sale.jpg", "deals/sneaker-deal.jpg", "deals/boutique-style.png",
@@ -1347,7 +1310,7 @@ def create_app(test_config=None):
         categories = category_names()
         selected_category = category if category in categories else ""
         if not selected_category:
-            matched_category = matching_category_for_query(query, categories)
+            matched_category = matching_category_for_query(query, categories) if not tag_query_matches(query) else ""
             if matched_category:
                 selected_category = matched_category
                 query = ""
@@ -1357,15 +1320,15 @@ def create_app(test_config=None):
                          (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
                          (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url
                   FROM deals JOIN businesses ON businesses.id = deals.business_id
-                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
+                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                     AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if selected_category:
             sql += " AND deals.category = ?"
             params.append(selected_category)
         if query:
-            sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ?)"
-            params.extend([f"%{query}%"] * 4)
+            sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ? OR EXISTS (SELECT 1 FROM deal_tags dt JOIN category_tags ct ON ct.id = dt.tag_id WHERE dt.deal_id = deals.id AND (LOWER(ct.name) LIKE LOWER(?) OR LOWER(ct.keywords) LIKE LOWER(?))))"
+            params.extend([f"%{query}%"] * 6)
         if area:
             location_terms = parse_location_terms(area)
             location_filter = " AND (" + " OR ".join(location_match_sql() for _ in location_terms) + ")"
@@ -1426,6 +1389,8 @@ def create_app(test_config=None):
             add_suggestion(row["name"], "category", row["name"], "Category")
         if matching_category_for_query(query, category_names()) == "Shopping":
             add_suggestion("Clothes & fashion", "category", "Shopping", "Category")
+        for row in db.execute("SELECT category_tags.* FROM category_tags JOIN categories ON categories.id = category_tags.category_id WHERE categories.is_active = 1 AND (LOWER(category_tags.name) LIKE LOWER(?) OR LOWER(category_tags.keywords) LIKE LOWER(?) OR LOWER(categories.name) LIKE LOWER(?)) ORDER BY LOWER(category_tags.name) LIMIT 8", (like_query, like_query, like_query)).fetchall():
+            add_suggestion(row["name"], "search", row["name"], "Tag")
         cities = db.execute(
             """SELECT DISTINCT city FROM businesses WHERE is_approved = 1 AND is_blocked = 0
                AND city LIKE ? ORDER BY LOWER(city) LIMIT 3""",
@@ -1435,7 +1400,7 @@ def create_app(test_config=None):
             add_suggestion(row["city"], "area", row["city"], "City / area")
         all_deals = db.execute(
             """SELECT DISTINCT deals.title FROM deals JOIN businesses ON businesses.id = deals.business_id
-               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
+               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0
                  AND deals.title LIKE ? ORDER BY LOWER(deals.title) LIMIT 4""",
             (timestamp(), like_query),
@@ -1603,17 +1568,16 @@ def create_app(test_config=None):
 
     @app.route("/deals/<string:deal_id>")
     def deal_detail(deal_id):
-        deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
+        deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
         if not deal: abort(404)
         consumer = current_consumer_profile()
         is_favorite = bool(consumer and get_db().execute(
             "SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)
         ).fetchone()) or deal_id in session.get("saved_deals", [])
         images = get_db().execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
-        daily_remaining = daily_voucher_remaining(get_db(), deal)
+        daily_remaining = voucher_stock_remaining(get_db(), deal)
         return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite,
                                images=images, daily_remaining=daily_remaining,
-                               daily_capacity=daily_voucher_capacity(deal),
                                opening_hours=opening_hours_by_day(deal["opening_hours"]))
 
     @app.route("/consumer")
@@ -1646,7 +1610,7 @@ def create_app(test_config=None):
         deal = db.execute(
             """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address
                FROM deals JOIN businesses ON businesses.id = deals.business_id
-               WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+               WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
             (deal_id, timestamp()),
         ).fetchone()
@@ -1664,8 +1628,8 @@ def create_app(test_config=None):
             quantity = int(request.form.get("quantity", "1"))
         except ValueError:
             quantity = 0
-        if not 1 <= quantity <= 10:
-            flash("Choose between 1 and 10 items for this voucher.", "danger")
+        if quantity < 1:
+            flash("Enter a positive whole number of vouchers.", "danger")
             return render_template("claim_code.html", deal=deal, consumer=consumer), 400
         stars = request.form.get("stars", "").strip()
         if stars and stars not in {"1", "2", "3", "4", "5"}:
@@ -1681,7 +1645,7 @@ def create_app(test_config=None):
                 db.execute("SELECT id FROM deals WHERE id = ? FOR UPDATE", (deal_id,))
             deal = db.execute(
                 """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address FROM deals JOIN businesses ON businesses.id = deals.business_id
-                 WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                 WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                      AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
                 (deal_id, timestamp()),
             ).fetchone()
@@ -1705,8 +1669,8 @@ def create_app(test_config=None):
                 ).fetchone()["total"]
                 if claimed >= deal["max_vouchers_per_customer"]:
                     raise ValueError("You have reached this deal's voucher limit per customer.")
-            if daily_voucher_remaining(db, deal) < 1:
-                raise ValueError("All of today's vouchers have been claimed. Please try again tomorrow.")
+            if voucher_stock_remaining(db, deal) < quantity:
+                raise ValueError("The requested quantity exceeds the vouchers remaining for this deal.")
             reservation = db.execute(
                 """INSERT INTO device_deal_claims (deal_id, device_id, created_at)
                    VALUES (?, ?, ?) ON CONFLICT (deal_id, device_id) DO NOTHING""",
@@ -1881,7 +1845,7 @@ def create_app(test_config=None):
                            WHERE LOWER(categories.name) = LOWER(businesses.category) LIMIT 1) category_image_secure_url
                   FROM businesses
                   LEFT JOIN deals ON deals.business_id = businesses.id
-                     AND deals.is_active = 1 AND deals.is_approved = 1 AND deals.expires_at > ?
+                     AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                   WHERE businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         now = timestamp()
         params = [now, now, now]
@@ -1907,14 +1871,14 @@ def create_app(test_config=None):
         ).fetchone()
         if not business:
             abort(404)
-        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND deleted_at IS NULL AND redemption_count < redemption_limit AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
+        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
         deal_page, deal_pages, per_page, deal_offset = page_window(deal_total, "deal_page")
         deals = db.execute(
             """SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours,
                       users.phone business_phone FROM deals JOIN businesses ON businesses.id = deals.business_id
                JOIN users ON users.id = businesses.owner_id
                WHERE deals.business_id = ? AND deals.is_active = 1 AND deals.is_approved = 1
-                 AND deals.deleted_at IS NULL AND deals.redemption_count < deals.redemption_limit AND deals.expires_at > ?
+                 AND deals.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
             (business_id, timestamp(), per_page, deal_offset),
         ).fetchall()
@@ -2212,6 +2176,7 @@ def create_app(test_config=None):
                          regular_price_kobo, discount_price_kobo, daily_limit, customer_limit, timestamp()),
                     )
                     deal_id = cursor.lastrowid
+                    save_deal_tags(deal_id, category)
                     db.execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", (opening_hours, business["id"]))
                     for order, image in enumerate(images, start=1):
                         db.execute(
@@ -2286,6 +2251,7 @@ def create_app(test_config=None):
                         (title, description, category, terms, timestamp(expires_at), limit, regular_price_kobo,
                          discount_price_kobo, daily_limit, customer_limit, deal_id),
                     )
+                    save_deal_tags(deal_id, category)
                     db.execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", (opening_hours, business["id"]))
                     for order, image in enumerate(images, start=1):
                         db.execute(
@@ -2481,8 +2447,8 @@ def create_app(test_config=None):
                 fee = voucher["deal_fee"] if voucher and voucher["deal_fee"] is not None else redemption_fee(db, business)
                 balance_after = redeem_code(db, business, value, current_user()["id"], timestamp(), fee)
                 send_low_wallet_alert(business["id"], balance_after)
-                total_due = voucher["quantity"] * voucher["unit_price_kobo"] // 100 if voucher else 0
-                flash(f"Voucher validated for {voucher['quantity'] if voucher else 1} item(s). Customer pays ₦{total_due:,}; ₦{fee:,} deducted. New wallet balance: ₦{balance_after:,}.", "success")
+                total_due = Decimal(voucher["quantity"] * voucher["unit_price_kobo"]) / 100 if voucher else Decimal(0)
+                flash(f"Voucher validated for {voucher['quantity'] if voucher else 1} voucher(s). Customer pays ₦{total_due:,.2f}; ₦{fee:,} deducted. New wallet balance: ₦{balance_after:,}.", "success")
             except ValueError as error:
                 db.rollback(); flash(str(error), "danger")
         return render_template("redeem.html", business=business, fee=redemption_fee(business=business))
@@ -2490,6 +2456,8 @@ def create_app(test_config=None):
     @app.route("/admin")
     @roles_required("admin")
     def admin_dashboard():
+        if not admin_can("finance"):
+            return render_template("admin_limited_dashboard.html")
         db = get_db()
         ledger_total = db.execute("SELECT COUNT(*) total FROM ledger_entries").fetchone()["total"]
         ledger_page, ledger_pages, limit, ledger_offset = page_window(ledger_total, "ledger_page")
@@ -2510,7 +2478,7 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         revenue = db.execute("SELECT COALESCE(SUM(fee_charged), 0) total FROM ledger_entries").fetchone()["total"]
         redemption_count = db.execute("SELECT COUNT(*) total FROM ledger_entries").fetchone()["total"]
-        return render_template("admin_dashboard.html", ledger=ledger, topups=topups, recent_topups=recent_topups, businesses=businesses,
+        return render_template("admin_finance_dashboard.html" if current_user()["created_by_admin"] else "admin_dashboard.html", ledger=ledger, topups=topups, recent_topups=recent_topups, businesses=businesses,
                                revenue=revenue, redemption_count=redemption_count, fee=redemption_fee(db),
                                pending_business_count=pending_business_count, business_total=business_total,
                                ledger_page=ledger_page, ledger_pages=ledger_pages,
@@ -3041,6 +3009,7 @@ def create_app(test_config=None):
                            VALUES (?, ?, ?, 'admin', ?, 1, ?, ?)""",
                         (email, phone, generate_password_hash(password), name, timestamp(), current_user()["id"]),
                     )
+                    save_admin_permissions(cursor.lastrowid)
                     record_admin_action("create_sub_admin", "user", cursor.lastrowid, f"Created administrator {email}")
                     flash("Sub-admin account created.", "success")
                     return redirect(url_for("admin_team"))
@@ -3213,10 +3182,13 @@ def create_app(test_config=None):
     with app.app_context():
         init_db()
 
+    admin_can, permission_choices, save_admin_permissions, save_deal_tags, tag_query_matches = register_corrections(
+        app, get_db, current_user, roles_required, timestamp, utcnow, record_admin_action)
+
     from locatediscount.community import register_community
     register_community(app, get_db, current_user, current_consumer_profile, business_for_user,
                        roles_required, timestamp, utcnow, parse_timestamp, redemption_fee, record_admin_action,
-                       lambda deal: daily_voucher_remaining(get_db(), deal))
+                       lambda deal: voucher_stock_remaining(get_db(), deal), admin_can)
     return app
 
 

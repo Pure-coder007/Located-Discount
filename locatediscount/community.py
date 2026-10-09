@@ -14,7 +14,7 @@ from werkzeug.exceptions import HTTPException
 
 def register_community(app, get_db, current_user, consumer_profile, business_for_user,
                        roles_required, timestamp, utcnow, parse_timestamp,
-                       redemption_fee, audit, voucher_remaining):
+                       redemption_fee, audit, voucher_remaining, admin_can):
     # Explicit IDs work with both database adapters without changing existing IDs.
     key_type = 'UUID' if app.config['DATABASE_URL'] else 'TEXT'
     with app.app_context():
@@ -34,6 +34,8 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
         return max(0, math.ceil((parse_timestamp(deal['expires_at']) - utcnow()).total_seconds() / 86400))
 
     def deal_state(deal):
+        if voucher_remaining(deal) == 0:
+            return 'sold-out'
         if days_left(deal) == 0:
             return 'expired'
         if not deal['is_active'] or not deal['is_approved']:
@@ -125,7 +127,7 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
             try:
                 days = int(request.form.get('days', '30'))
                 limit = int(request.form.get('redemption_limit', deal['redemption_limit']))
-                if not deal['redemption_count'] < limit <= 100000:
+                if not max(deal['redemption_count'], db.execute('SELECT COALESCE(SUM(quantity),0) total FROM codes WHERE deal_id=?', (deal_id,)).fetchone()['total']) < limit <= 100000:
                     raise ValueError()
                 if not 1 <= days <= 365:
                     raise ValueError()
@@ -154,6 +156,8 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
 
     def chat_business(business_id):
         user = current_user()
+        if user and user['role'] == 'admin' and not admin_can('chat'):
+            abort(403)
         if not user or user['role'] not in ('admin', 'business'):
             abort(403)
         business = get_db().execute('SELECT * FROM businesses WHERE id = ?', (business_id,)).fetchone()
@@ -163,6 +167,8 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
 
     def chat_counts():
         user = current_user()
+        if user and user['role'] == 'admin' and not admin_can('chat'):
+            return []
         if not user or user['role'] not in ('admin', 'business'):
             return []
         sql = """SELECT businesses.id, businesses.name, COUNT(chat_messages.id) unread

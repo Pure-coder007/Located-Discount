@@ -147,10 +147,10 @@ header.reference-nav .home-logo-mark{width:168px!important;height:84px!important
 }
 
 /* Fit the complete supplied wordmark without cropping. */
-header.reference-nav .home-logo-mark{width:132px!important;height:70px!important;object-fit:contain!important}
+header.reference-nav .home-logo-mark{content:normal;width:110px!important;height:55px!important;object-fit:contain!important;object-position:center}
 .portal-brand-logo{width:132px!important;height:70px!important;object-fit:contain!important}
 .footer-logo img,.shared-home-footer .footer-logo img{width:132px!important;height:70px!important;object-fit:contain!important}
-@media(max-width:650px){header.reference-nav .home-logo-mark{width:132px!important;height:70px!important}}
+@media(max-width:650px){header.reference-nav .home-logo-mark{width:96px!important;height:48px!important}}
 
 /* Smaller typography for compact phones; desktop sizes stay unchanged. */
 @media(max-width:650px){
@@ -185,3 +185,11 @@ header.reference-nav .home-logo-mark{width:132px!important;height:70px!important
  .shared-home-footer p,.shared-home-footer a:not(.site-logo),.shared-footer-bottom,footer .footer-bottom{font-size:10px!important}
  /* Editable fields retain their size to avoid automatic mobile input zoom. */
 }
+
+.category-deal-count{top:16px;bottom:auto;z-index:3}.sold-out-banner{position:absolute;left:0;right:0;top:45%;z-index:5;padding:15px;text-align:center;color:#fff;background:#a51f2bea;font:900 26px/1.2 Poppins,sans-serif;letter-spacing:2px;pointer-events:none}.deal-sold-out{font-weight:900;color:#a51f2b}.nav-saved{display:inline-flex;align-items:center;gap:5px}.nav-saved b{border-radius:50%;background:#a51f2b;color:white;padding:3px 7px;font-size:10px}.permission-checklist{display:grid;gap:10px;padding:18px;border:1px solid #dce3ed;border-radius:12px}.permission-checklist label{display:flex;align-items:center;gap:9px;font-size:13px}.permission-checklist label[hidden]{display:none}.permission-checklist legend{font-weight:700}.permission-checklist p{font-size:12px;color:#64748b}.staff-access-form{margin:0 20px 20px}.tag-editor{display:grid;gap:16px;margin-top:18px}.voucher-cost{display:block;margin-top:12px;font-weight:800;color:#173774}.shared-footer-grid,.footer-grid{grid-template-columns:2fr 1fr}.deal-page .deal-showcase-media{display:flex;flex-direction:column}.deal-page .deal-showcase-media>img.deal-main-image{position:relative;inset:auto;flex:1;min-height:260px;height:260px}.deal-page .deal-gallery-thumbs{position:static;flex:none;padding:12px;justify-content:center;background:#fff}.deal-page .deal-gallery-thumb{width:64px;height:50px}@media(max-width:680px){.deal-page .deal-showcase-media{height:auto;min-height:0}.deal-page .deal-showcase-media>img.deal-main-image{min-height:260px;height:260px}.shared-footer-grid,.footer-grid{grid-template-columns:1fr}}
+
+.catalogue-search-field{position:relative;flex:1;min-width:160px}.catalogue-search-field>input{width:100%}.catalogue-search-field .home-search-suggestions{position:absolute;top:100%;left:0;right:0;z-index:60;border:1px solid #d5e2fb;border-radius:12px;background:#fff;box-shadow:0 8px 25px #17377425;overflow:hidden}.catalogue-search-field .home-search-suggestion{display:flex;gap:10px;width:100%;padding:12px;text-align:left;background:#fff;color:#173774;border:0;border-bottom:1px solid #edf2fc}.catalogue-search-field .home-search-suggestion:hover{background:#f2f6ff}.catalogue-search-field .home-search-suggestion strong,.catalogue-search-field .home-search-suggestion small{display:block}.catalogue-search-field .home-search-suggestion small{font-size:10px;color:#64748b}
+
+.business-category-tags{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.business-category-tags li{padding:7px 10px;border:1px solid #dce3ed;border-radius:8px;background:#f7f9fc;font-size:12px}.business-category-tags strong{display:block;margin-top:3px;color:#173774;font-size:9px}.permission-checklist [data-category-tags-name]{font-weight:500;font-size:13px;color:#64748b}
+
+.business-tag-copy{display:block;min-width:0}.business-tag-copy>strong{display:block;font-size:13px}.business-tag-copy>small,.business-tag-keywords{display:block;margin-top:5px;color:#64748b;font-size:11px;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere}.permission-checklist [data-tag-category]{align-items:flex-start}.permission-checklist [data-tag-category]>input{flex:none;margin-top:4px}

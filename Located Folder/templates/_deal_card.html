@@ -1,16 +1,16 @@
 {% macro deal_card(deal, saved=false) %}
 {% set state = deal_state(deal) %}
-{% set available = deal.is_active and deal.is_approved and days_left(deal) and deal.redemption_count < deal.redemption_limit and (deal.business_approved is not defined or deal.business_approved) and (deal.is_blocked is not defined or not deal.is_blocked) %}
+{% set available = deal.is_active and deal.is_approved and days_left(deal) and voucher_remaining(deal) > 0 and (deal.business_approved is not defined or deal.business_approved) and (deal.is_blocked is not defined or not deal.is_blocked) %}
 {% set images = deal_gallery(deal.id) %}
 {% set rating = rating_summary(deal.id) %}
 <article class="offer-card" data-offer-card>
   <div class="offer-cover">
     {% if images %}<img data-offer-cover src="{{ product_image_url(images[0]) }}" alt="{{ deal.title }}" loading="lazy" width="640" height="420">
     {% else %}<div class="offer-image-placeholder"><i class="bi bi-ticket-perforated"></i><span>{{ deal.category }}</span></div>{% endif %}
+    {% if voucher_remaining(deal) == 0 %}<strong class="sold-out-banner">SOLD OUT</strong>{% endif %}
     <span class="offer-category">{{ deal.category }}</span>
     {% if deal.regular_price_kobo > deal.discount_price_kobo and deal.regular_price_kobo %}<span class="offer-discount">Save {{ ((1 - deal.discount_price_kobo / deal.regular_price_kobo) * 100)|round|int }}%</span>{% endif %}
     <form class="offer-save" method="post" action="{{ url_for('toggle_favorite', deal_id=deal.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" aria-label="{{ 'Remove from saved' if saved or deal.id|string in saved_deal_ids else 'Save for later' }}"><i class="bi {{ 'bi-heart-fill' if saved or deal.id|string in saved_deal_ids else 'bi-heart' }}"></i></button></form>
-    {% if images|length > 1 %}<div class="offer-thumbnails" aria-label="Deal images">{% for image in images %}<button type="button" data-offer-image="{{ product_image_url(image) }}" aria-label="View image {{ loop.index }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"><img src="{{ product_image_url(image) }}" alt="" loading="lazy"></button>{% endfor %}</div>{% endif %}
   </div>
   <div class="offer-content">
     <div class="offer-business"><i class="bi bi-shop"></i><a href="{{ url_for('vendor_detail', business_id=deal.business_id) }}">{{ deal.business_name }}</a><span>★ {{ rating.average|round(1) if rating.total else 'New' }}{% if rating.total %} <small>({{ rating.total }})</small>{% endif %}</span></div>

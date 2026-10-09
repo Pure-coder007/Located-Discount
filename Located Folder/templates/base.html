@@ -37,9 +37,8 @@
     {% block content %}{% endblock %}
   </main>
   {% block site_footer %}
-  <footer class="shared-home-footer"><div class="shared-footer-grid"><div><a class="site-logo footer-logo" href="{{ url_for('home') }}"><img src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a><p>Discover local business deals in your city, claim a unique code, and redeem it in-store.</p></div><div><h3>Explore</h3><a href="{{ url_for('home') }}">Browse deals</a><a href="{{ url_for('vendors') }}">Vendors</a><a href="{{ url_for('my_codes') }}">My vouchers</a></div><div><h3>Business</h3><a href="{{ url_for('register') }}">List your business</a><a href="{{ url_for('login') }}">Business sign in</a></div><div><h3>Policies</h3><a href="{{ url_for('policy_page', policy_key='terms') }}">Terms of service</a><a href="{{ url_for('policy_page', policy_key='privacy') }}">Privacy policy</a><a href="{{ url_for('policy_page', policy_key='faq') }}">FAQ</a></div></div><div class="shared-footer-bottom"><span>© 2026 Locatediscount. All rights reserved.</span></div></footer>
+  <footer class="shared-home-footer"><div class="shared-footer-grid"><div><a class="site-logo footer-logo" href="{{ url_for('home') }}"><img src="{{ url_for('static', filename='img/discount_logo.png') }}" alt="Locatediscount"><span>Locatediscount<small>Discover · Save · Redeem</small></span></a><p>Discover local business deals in your city, claim a unique code, and redeem it in-store.</p></div><div><h3>Policies</h3><a href="{{ url_for('policy_page', policy_key='terms') }}">Terms of service</a><a href="{{ url_for('policy_page', policy_key='privacy') }}">Privacy policy</a><a href="{{ url_for('policy_page', policy_key='faq') }}">FAQ</a></div></div><div class="shared-footer-bottom"><span>© 2026 Locatediscount. All rights reserved.</span></div></footer>
   {% endblock %}
-{% if saved_reminder_count %}<a class="saved-reminder" href="{{ url_for('saved_deals') }}" role="status">{{ saved_reminder_count }} saved deal{% if saved_reminder_count != 1 %}s{% endif %} expire within 3 days. View reminders →</a>{% endif %}
-  {% include '_support_widget.html' %}
+  {% if request.endpoint == 'home' and (not current_user or current_user.role == 'consumer') %}{% include '_support_widget.html' %}{% endif %}
 </body>
 </html>

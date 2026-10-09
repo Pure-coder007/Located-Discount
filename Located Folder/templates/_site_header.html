@@ -3,9 +3,10 @@
     <a class="site-logo" href="{{ url_for('home') }}" aria-label="Locatediscount home"><img class="home-logo-mark" src="{{ url_for('static', filename='img/discount_logo.png', v='brand-20261007') }}" alt="Locatediscount — Business Listings and Deals"></a>
     <button class="nav-menu-toggle home-menu-toggle" type="button" aria-controls="public-main-nav" aria-expanded="false" aria-label="Open navigation"><i class="bi bi-list"></i></button>
     <nav class="site-nav" id="public-main-nav" aria-label="Main navigation">
-      {% for label, endpoint in [('Home','home'),('About Us','about_page'),('Services','services_page'),('Featured','deals'),('Contact Us','contact_page'),('Login','login')] %}
+      {% for label, endpoint in [('Home','home'),('Featured','deals'),('Login','login')] %}
       <a href="{{ url_for(endpoint, **({'sort':'popular'} if endpoint == 'deals' else {})) }}" {% if request.endpoint == endpoint or (endpoint == 'deals' and request.endpoint in ('deal_detail','vendors','vendor_detail')) %}class="active" aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
+      {% if not current_user or current_user.role == "consumer" %}<a class="nav-saved" href="{{ url_for('saved_deals') }}" aria-label="Saved deals"><i class="bi bi-heart"></i>{% if saved_reminder_count %}<b>{{ saved_reminder_count }}</b>{% endif %}</a>{% endif %}
       <a class="nav-account" href="{{ url_for('dashboard') if current_user else (url_for('saved_deals') if customer_profile else url_for('login')) }}" aria-label="{{ 'Your dashboard' if current_user or customer_profile else 'Sign in' }}"><i class="bi bi-person" aria-hidden="true"></i></a>
     </nav>
   </div>

@@ -32,7 +32,7 @@ def register_support(app, get_db, timestamp, days_left, voucher_remaining):
         base = '''FROM deals JOIN businesses ON businesses.id = deals.business_id
                   JOIN users ON users.id = businesses.owner_id
                   WHERE deals.is_active = 1 AND deals.is_approved = 1 AND deals.deleted_at IS NULL
-                  AND deals.expires_at > ? AND deals.redemption_count < deals.redemption_limit
+                  AND deals.expires_at > ? AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT))
                   AND businesses.is_approved = 1 AND businesses.is_blocked = 0'''
         params = [timestamp()]
         extra = ''

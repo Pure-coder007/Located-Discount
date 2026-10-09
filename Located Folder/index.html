@@ -73,7 +73,7 @@
                     <div class="hero-reference-field hero-reference-region">
                         {# Pass regions as a list of city/region strings from the route.
                            Existing vendor cities are a fallback, not a complete region list. #}
-                        {% set search_regions = regions|default(popular_vendors|map(attribute='city')|select|unique|list, true) %}
+                        {% set search_regions = regions|default([], true) %}
                         <select id="home-search-area" name="area" aria-label="Region">
                             <option value="">All Regions</option>
                             {% if area and area not in search_regions %}
@@ -111,10 +111,6 @@
                   <div class="market-deal-grid">{% for deal in deals %}{{ deal_card(deal) }}{% else %}<div class="market-empty"><i class="bi bi-ticket-perforated"></i><h3>No live offers match your search</h3><p>Try another area or category, or ask our platform guide for help.</p><a href="{{ url_for('deals') }}">Explore all deals →</a></div>{% endfor %}</div>
                   {% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='deals') }}
                 </section>
-                <section class="section popular">
-                  <div class="market-section-heading"><div><span class="market-eyebrow">THE LOCAL EDIT</span><h2>Places worth stepping out for.</h2><p>Discover the businesses bringing great offers to your community.</p></div><a class="market-text-link" href="{{ url_for('vendors', area=area) }}">All popular places <i class="bi bi-arrow-up-right"></i></a></div>
-                  <div class="places-grid">{% for vendor in popular_vendors %}<article class="place-card"><a class="place-image" href="{{ url_for('vendor_detail', business_id=vendor.id) }}">{% set cover = vendor.deal_image_secure_url or (url_for('static', filename='uploads/products/' ~ vendor.deal_image_file_name) if vendor.deal_image_file_name else vendor.category_image_secure_url or (url_for('static', filename='uploads/products/' ~ vendor.category_image_file_name) if vendor.category_image_file_name else '')) %}{% if cover %}<img src="{{ cover }}" alt="{{ vendor.name }}" loading="lazy" width="640" height="420">{% else %}<span class="place-placeholder"><i class="bi bi-shop"></i></span>{% endif %}<span class="place-count"><i class="bi bi-ticket-perforated"></i>{{ vendor.live_deal_count }} live deal{{ 's' if vendor.live_deal_count != 1 else '' }}</span></a><div class="place-content"><span class="place-category">{{ vendor.category }}</span><h3><a href="{{ url_for('vendor_detail', business_id=vendor.id) }}">{{ vendor.name }}</a></h3><p><i class="bi bi-geo-alt"></i>{{ vendor.address }}, {{ vendor.city }}</p><div class="place-footer"><a href="{{ url_for('vendor_detail', business_id=vendor.id) }}">Explore business <i class="bi bi-arrow-up-right"></i></a>{% if vendor.phone %}<a class="place-phone" href="tel:{{ vendor.phone }}" aria-label="Call {{ vendor.name }}"><i class="bi bi-telephone"></i></a>{% endif %}</div></div></article>{% else %}<div class="market-empty"><i class="bi bi-shop"></i><h3>New favourites are on their way.</h3><p>Approved businesses appear here when their offers go live.</p></div>{% endfor %}</div>
-                </section>
 <section class="section home-categories" aria-label="Nearby deal categories">
             <div class="section-heading">
                 <div>
@@ -139,6 +135,7 @@
             />{% else %}<span class="category-card-fallback"
               ><i class="bi bi-grid-3x3-gap-fill"></i></span
             >{% endif %}
+            <span class="place-count category-deal-count"><i class="bi bi-ticket-perforated"></i>{{ category.deal_count }} live deal{{ "s" if category.deal_count != 1 else "" }}</span>
             <span class="category-card-overlay"
               ><small>Explore local savings</small
               ><strong>{{ category.name }}</strong
@@ -223,18 +220,6 @@
           </p>
         </div>
         <div>
-          <h3>Explore</h3>
-          <a href="{{ url_for('home') }}">Browse deals</a
-          ><a href="{{ url_for('home', category='Food & Drink') }}"
-            >Food &amp; Drink</a
-          ><a href="{{ url_for('home', category='Shopping') }}">Shopping</a>
-        </div>
-        <div>
-          <h3>Business</h3>
-          <a href="{{ url_for('register') }}">List your business</a
-          ><a href="{{ url_for('login') }}">Business sign in</a>
-        </div>
-        <div>
           <h3>Policies</h3>
           <a href="{{ url_for('policy_page', policy_key='terms') }}"
             >Terms of service</a
@@ -250,6 +235,6 @@
     </footer>
 
   {% if saved_reminder_count %}<a class="saved-reminder" href="{{ url_for('saved_deals') }}" role="status">{{ saved_reminder_count }} saved deal{% if saved_reminder_count != 1 %}s{% endif %} expire within 3 days. View reminders →</a>{% endif %}
-  {% include '_support_widget.html' %}
+  {% if not current_user or current_user.role == 'consumer' %}{% include '_support_widget.html' %}{% endif %}
 </body>
 </html>

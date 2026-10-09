@@ -13,13 +13,14 @@
       {% else %}
         <i class="bi bi-ticket-perforated" aria-hidden="true"></i>
       {% endif %}
+      {% if daily_remaining == 0 %}<strong class="sold-out-banner">SOLD OUT</strong>{% endif %}
       <span class="deal-category">{{ deal.category }}</span>
       {% if images|length > 1 %}<div class="deal-gallery-thumbs">{% for image in images %}<button type="button" class="deal-gallery-thumb {% if loop.first %}is-selected{% endif %}" data-gallery-image="{{ product_image_url(image) }}" aria-label="Show image {{ loop.index }}"><img src="{{ product_image_url(image) }}" alt=""></button>{% endfor %}</div>{% endif %}
     </div>
 
     <div class="deal-showcase-content">
       <div class="deal-main-copy">
-        {% if daily_remaining <= 3 %}<p class="deal-eyebrow">Limited availability today</p>{% endif %}
+        {% if daily_remaining <= 3 %}<p class="deal-eyebrow">Limited availability</p>{% endif %}
         <h1>{{ deal.title }}</h1>
         <div class="deal-price" aria-label="Deal price">
           {% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}
@@ -42,7 +43,7 @@
         <span class="deal-claim-icon"><i class="bi bi-ticket-perforated"></i></span>
         <h2>Claim this deal</h2>
         <p>Get your voucher, then show it when you visit.</p>
-        <a class="deal-claim-button" href="{{ url_for('claim_code', deal_id=deal.id) }}">Get voucher <i class="bi bi-arrow-right"></i></a>
+        {% if daily_remaining > 0 %}<a class="deal-claim-button" href="{{ url_for('claim_code', deal_id=deal.id) }}">Get voucher <i class="bi bi-arrow-right"></i></a>{% else %}<p class="deal-sold-out">SOLD OUT</p>{% endif %}
         <form method="post" action="{{ url_for('toggle_favorite', deal_id=deal.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="deal-save-button" type="submit"><i class="bi {% if is_favorite %}bi-heart-fill{% else %}bi-heart{% endif %}"></i> {% if is_favorite %}Saved{% else %}Save for later{% endif %}</button>
