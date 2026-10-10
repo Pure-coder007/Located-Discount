@@ -18,7 +18,7 @@ body { margin: 0; background: #fff; color: var(--ink); font-family: "DM Sans", s
 .site-nav a, .site-nav button { border: 0; background: transparent; color: rgba(255,255,255,.8); font: 600 11px "DM Sans", sans-serif; text-decoration: none; transition: color .2s; }
 .site-nav a:hover, .site-nav a.active, .site-nav button:hover { color: #fff; }
 .site-nav form { margin: 0; }
-.hero { position: relative; min-height: 325px; background: center 45%/cover url("../img/deals/city-hero.png"); }
+.hero { position: relative; min-height: 325px; background: center 45%/cover url("../img/eko.jpg"); }
 
 /* Preserve your existing preference for no dark hero overlay. */
 /*.hero-overlay { display: none !important; visibility: hidden !important; opacity: 0 !important; background: none !important; } */

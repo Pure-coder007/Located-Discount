@@ -102,7 +102,7 @@ The command is idempotent. It creates 10 approved demo vendors, 50 distinct prod
 3. The new business starts in a pending-review state with a `₦0` wallet and `₦2,000` default low-balance threshold. An admin must approve it before operational actions are available.
 4. In **Wallet**, the merchant can pay through Paystack for automatic verified credit, or submit a manual bank-transfer reference for administrator review.
 5. A successful Paystack confirmation credits the wallet exactly once. Manual transfers remain pending until an administrator approves them.
-6. The merchant clicks **Create deal**, enters the title, description, category, terms, future expiry, and redemption limit. The page forecasts cost using the current fee, for example `₦150 x 50 = ₦7,500`.
+6. The merchant clicks **Create deal**, enters the title, description, category, terms, an expiry within seven days, and redemption limit. The page forecasts cost using the current fee, for example `₦150 x 50 = ₦7,500`.
 7. The server publishes an active deal only if all validation checks pass. A deal closes automatically when it expires or reaches its redemption limit.
 
 ### Customer: discover to code, no password signup required
@@ -128,13 +128,13 @@ Staff should redeem only after applying the promised discount.
 
 1. Staff sign in to the relevant business and open **Redeem a customer code**.
 2. They type the `LD-XXXXXXXX` value. A future QR scanner can populate this same field; server validation remains identical.
-3. The server validates the format, finds the code, and checks it belongs to that business, is active, is unexpired, and is attached to a live deal. It also checks that the business is not already blocked for a top-up.
+3. The server validates the format, finds the code, and checks it belongs to that business, is active, is unexpired, and is attached to a live deal. It also checks that the wallet can cover the applicable redemption fee.
 4. If a check fails, the system makes no financial or code change and returns an error.
 5. If valid, one database transaction performs all of the following together:
    - Marks the code `redeemed`, with the time and staff user.
-- Reads the applicable business-specific fee, or the admin-controlled default when no override exists.
+   - Reads the applicable deal-specific fee, business-specific fee, or admin-controlled default.
    - Debits the business wallet.
-   - Increments the deal redemption count and closes it at its limit.
+   - Increments the deal redemption count by the claimed quantity and synchronizes fee-based suspension.
    - Writes a posted wallet transaction.
    - Writes one immutable ledger entry with business, deal, code, fee, resulting balance, and time.
 6. The staff screen immediately shows the exact fee deducted and new balance. The admin master ledger receives the same entry.
@@ -143,9 +143,9 @@ The code update is conditional and the ledger has a unique code reference. Two n
 
 ### Low-balance behavior
 
-The current customer is honoured, but future redemptions stop when the resulting wallet balance is below the business threshold.
+Each deal is suspended from public listings and voucher claims when its business wallet cannot cover its effective redemption fee. Redemption is rejected before any wallet debit or ledger write. The low-balance threshold remains an alert level; it does not block a fee the wallet can still cover.
 
-For example, with `₦100` in the wallet and a `₦150` fee, the current valid redemption succeeds, resulting in `-₦50`. The business is marked `needs_top_up`; the next code is blocked. Once a submitted top-up is approved, the flag clears and redemption resumes.
+For example, a `₦100` wallet cannot redeem a deal with a `₦150` fee. A `₦150` wallet can redeem it once, leaving `₦0` and suspending the deal. Funding restores eligible deals automatically once their fees are covered; expired, archived and unapproved deals remain unavailable.
 
 ### Admin: operations and disputes
 
@@ -168,9 +168,9 @@ For disputes, preserve the original redemption entry. Use a documented wallet ad
 | Record | States | Transition |
 | --- | --- | --- |
 | Code | `active`, `redeemed`, `expired` | Claim creates active; successful validation redeems it; expiry is enforced at validation. |
-| Deal | active or closed | Expiry or redemption limit closes it. |
+| Deal | active, suspended, or closed | Insufficient wallet funds suspend it; funding resumes eligible deals. Expiry or voucher exhaustion removes it from public listings. |
 | Top-up | `pending`, `approved`, `rejected`, `posted` | Merchant submits pending; admin approval credits it. Redemptions and adjustments are posted immediately. |
-| Wallet | normal or `needs_top_up` | A below-threshold redemption sets the flag; approved funding clears it. |
+| Wallet | normal or low-balance alert | A below-threshold redemption sets the alert. Each deal requires enough balance for its effective fee. |
 
 ## Security Controls
 

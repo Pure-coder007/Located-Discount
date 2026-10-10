@@ -34,12 +34,14 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
         return max(0, math.ceil((parse_timestamp(deal['expires_at']) - utcnow()).total_seconds() / 86400))
 
     def deal_state(deal):
-        if voucher_remaining(deal) == 0:
-            return 'sold-out'
         if days_left(deal) == 0:
             return 'expired'
         if not deal['is_active'] or not deal['is_approved']:
             return 'pending' if not deal['is_approved'] else 'closed'
+        if get_db().execute('SELECT 1 FROM wallet_suspended_deals WHERE deal_id=?', (deal['id'],)).fetchone():
+            return 'suspended'
+        if voucher_remaining(deal) == 0:
+            return 'sold-out'
         return 'expiring' if days_left(deal) <= 3 else 'live'
 
     def rating_summary(deal_id):
@@ -125,14 +127,15 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
             abort(403)
         if request.method == 'POST':
             try:
-                days = int(request.form.get('days', '30'))
+                days = int(request.form.get('days', '7' if user['role'] == 'business' else '30'))
                 limit = int(request.form.get('redemption_limit', deal['redemption_limit']))
                 if not max(deal['redemption_count'], db.execute('SELECT COALESCE(SUM(quantity),0) total FROM codes WHERE deal_id=?', (deal_id,)).fetchone()['total']) < limit <= 100000:
                     raise ValueError()
-                if not 1 <= days <= 365:
+                max_days = 7 if user['role'] == 'business' else 365
+                if not 1 <= days <= max_days:
                     raise ValueError()
             except ValueError:
-                flash('Choose 1 to 365 days and a redemption limit above the number already redeemed (maximum 100,000).', 'danger')
+                flash(f'Choose 1 to {7 if user["role"] == "business" else 365} days and a redemption limit above the number already redeemed (maximum 100,000).', 'danger')
                 return render_template('renew_deal.html', deal=deal), 400
             if not business['is_approved'] or business['is_blocked']:
                 flash('The business must be approved and unblocked before renewal.', 'danger')
@@ -142,7 +145,7 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
             if approved and business['wallet_balance'] < fee:
                 flash('Fund the business wallet before publishing this renewal.', 'danger')
                 return render_template('renew_deal.html', deal=deal), 400
-            expiry = max(utcnow(), parse_timestamp(deal['expires_at'])) + timedelta(days=days)
+            expiry = (utcnow() if user['role'] == 'business' else max(utcnow(), parse_timestamp(deal['expires_at']))) + timedelta(days=days)
             # Preserve codes, prices and customer limits; let the owner set renewed capacity.
             db.execute('''UPDATE deals SET expires_at = ?, redemption_limit = ?, is_active = ?, is_approved = ?,
                 review_status = ?, review_reason = NULL, approved_at = ?, approved_by = ? WHERE id = ?''',
@@ -165,7 +168,7 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
             abort(403)
         return business
 
-    def chat_counts():
+    def chat_counts(query=None):
         user = current_user()
         if user and user['role'] == 'admin' and not admin_can('chat'):
             return []
@@ -179,6 +182,9 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
         if user['role'] == 'business':
             sql += ' WHERE businesses.owner_id=?'
             params.append(user['id'])
+        elif query:
+            sql += ' WHERE LOWER(businesses.name) LIKE LOWER(?)'
+            params.append(f'%{query}%')
         sql += ' GROUP BY businesses.id, businesses.name ORDER BY businesses.name'
         return [dict(id=str(row['id']), name=row['name'], unread=row['unread']) for row in get_db().execute(sql, params).fetchall()]
 
@@ -196,10 +202,11 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
     @roles_required('admin', 'business')
     def chat():
         user = current_user()
-        businesses = chat_counts()
+        business_search = ' '.join(request.args.get('q', '').split())[:100] if user['role'] == 'admin' else ''
+        businesses = chat_counts(business_search)
         selected = request.args.get('business_id') or (str(businesses[0]['id']) if businesses and user['role'] == 'business' else None)
         business = chat_business(selected) if selected else None
-        return render_template('chat.html', businesses=businesses, business=business)
+        return render_template('chat.html', businesses=businesses, business=business, business_search=business_search)
 
     sock = Sock(app)
     app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 25, 'max_message_size': 8192}

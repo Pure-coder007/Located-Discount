@@ -193,3 +193,15 @@ header.reference-nav .home-logo-mark{content:normal;width:110px!important;height
 .business-category-tags{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.business-category-tags li{padding:7px 10px;border:1px solid #dce3ed;border-radius:8px;background:#f7f9fc;font-size:12px}.business-category-tags strong{display:block;margin-top:3px;color:#173774;font-size:9px}.permission-checklist [data-category-tags-name]{font-weight:500;font-size:13px;color:#64748b}
 
 .business-tag-copy{display:block;min-width:0}.business-tag-copy>strong{display:block;font-size:13px}.business-tag-copy>small,.business-tag-keywords{display:block;margin-top:5px;color:#64748b;font-size:11px;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere}.permission-checklist [data-tag-category]{align-items:flex-start}.permission-checklist [data-tag-category]>input{flex:none;margin-top:4px}
+
+/* Keep the three discovery steps readable on phones. */
+@media(max-width:650px){
+ .market-home .how .step-grid{grid-template-columns:minmax(0,1fr);gap:16px;margin-top:24px}
+ .market-home .how>h2{font-size:24px;line-height:1.35}
+ .market-home .how .step-grid article{padding:24px}
+ .market-home .how .step-grid h3{font-size:18px;line-height:1.4}
+ .market-home .how .step-grid p{font-size:14px;line-height:1.65}
+}
+.chat-business-search{width:100%}.chat-business-search label{width:100%;font-weight:700}.chat-business-search input{flex:1;min-width:160px}.chat-search-results{display:grid;gap:10px;margin:18px 0}.chat-search-results>a{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px;border:1px solid #dce3e8;border-radius:10px;color:#173774;text-decoration:none;background:#f7f9fc}.chat-search-results>a:hover{background:#edf3fc}.chat-search-results small{font-size:12px}.chat-search-count{font-size:13px;color:#64748b}
+
+.offer-status.suspended,.deal-status-pill[class*="status-suspended"]{background:#fff1d6;color:#92400e}

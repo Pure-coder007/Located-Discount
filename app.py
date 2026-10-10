@@ -49,6 +49,7 @@ DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "instance" / "lo
 DEFAULT_REDEMPTION_FEE = 500
 MAX_PRODUCT_IMAGES = 5
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_VENDOR_DEAL_DAYS = 7
 PASSWORD_RESET_TTL = timedelta(minutes=30)
 SQLITE_UUID_DEFAULT = (
     "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || "
@@ -631,6 +632,7 @@ def create_app(test_config=None):
             "pagination_url": pagination_url,
             "product_image_url": product_image_url,
             "category_image_url": category_image_url,
+            "max_vendor_expiry": (utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS)).strftime("%Y-%m-%dT%H:%M"),
         }
 
     @app.template_filter("qr_svg")
@@ -1218,7 +1220,7 @@ def create_app(test_config=None):
                          (SELECT image_file_name FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_file_name,
                          (SELECT image_secure_url FROM categories WHERE LOWER(categories.name) = LOWER(deals.category) LIMIT 1) AS category_image_secure_url
                  FROM deals JOIN businesses ON businesses.id = deals.business_id
-                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+                 WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                    AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if category in categories:
@@ -1269,7 +1271,7 @@ def create_app(test_config=None):
         category_sql += """
             FROM categories
             LEFT JOIN deals ON deals.category = categories.name
-                AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+                AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
             LEFT JOIN businesses ON businesses.id = deals.business_id
                 AND businesses.is_approved = 1 AND businesses.is_blocked = 0
             WHERE categories.is_active = 1
@@ -1320,7 +1322,7 @@ def create_app(test_config=None):
                          (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
                          (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url
                   FROM deals JOIN businesses ON businesses.id = deals.business_id
-                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+                  WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                     AND businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         params = [timestamp()]
         if selected_category:
@@ -1400,7 +1402,7 @@ def create_app(test_config=None):
             add_suggestion(row["city"], "area", row["city"], "City / area")
         all_deals = db.execute(
             """SELECT DISTINCT deals.title FROM deals JOIN businesses ON businesses.id = deals.business_id
-               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+               WHERE deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0
                  AND deals.title LIKE ? ORDER BY LOWER(deals.title) LIMIT 4""",
             (timestamp(), like_query),
@@ -1568,7 +1570,7 @@ def create_app(test_config=None):
 
     @app.route("/deals/<string:deal_id>")
     def deal_detail(deal_id):
-        deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
+        deal = get_db().execute("SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ? AND businesses.is_approved = 1 AND businesses.is_blocked = 0", (deal_id, timestamp())).fetchone()
         if not deal: abort(404)
         consumer = current_consumer_profile()
         is_favorite = bool(consumer and get_db().execute(
@@ -1594,7 +1596,7 @@ def create_app(test_config=None):
     def legacy_consumer_deals():
         category = request.args.get("category", "")
         query = request.args.get("q", "").strip()
-        sql = "SELECT deals.*, businesses.name business_name, businesses.city FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.is_active = 1 AND deals.expires_at > ?"
+        sql = "SELECT deals.*, businesses.name business_name, businesses.city FROM deals JOIN businesses ON businesses.id = deals.business_id WHERE deals.is_active = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND deals.expires_at > ?"
         params = [timestamp()]
         categories = category_names()
         if category in categories: sql += " AND deals.category = ?"; params.append(category)
@@ -1610,7 +1612,7 @@ def create_app(test_config=None):
         deal = db.execute(
             """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address
                FROM deals JOIN businesses ON businesses.id = deals.business_id
-               WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+               WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                  AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
             (deal_id, timestamp()),
         ).fetchone()
@@ -1645,7 +1647,7 @@ def create_app(test_config=None):
                 db.execute("SELECT id FROM deals WHERE id = ? FOR UPDATE", (deal_id,))
             deal = db.execute(
                 """SELECT deals.*, businesses.name business_name, businesses.city, businesses.address FROM deals JOIN businesses ON businesses.id = deals.business_id
-                 WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+                 WHERE deals.id = ? AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                      AND businesses.is_approved = 1 AND businesses.is_blocked = 0""",
                 (deal_id, timestamp()),
             ).fetchone()
@@ -1830,13 +1832,13 @@ def create_app(test_config=None):
                          (SELECT image.file_name
                             FROM deal_images image JOIN deals featured_deal ON featured_deal.id = image.deal_id
                            WHERE featured_deal.business_id = businesses.id
-                             AND featured_deal.is_active = 1 AND featured_deal.is_approved = 1
+                             AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = featured_deal.id) AND featured_deal.is_active = 1 AND featured_deal.is_approved = 1
                              AND featured_deal.expires_at > ?
                            ORDER BY featured_deal.created_at DESC, image.sort_order ASC LIMIT 1) deal_image_file_name,
                          (SELECT image.secure_url
                             FROM deal_images image JOIN deals featured_deal ON featured_deal.id = image.deal_id
                            WHERE featured_deal.business_id = businesses.id
-                             AND featured_deal.is_active = 1 AND featured_deal.is_approved = 1
+                             AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = featured_deal.id) AND featured_deal.is_active = 1 AND featured_deal.is_approved = 1
                              AND featured_deal.expires_at > ?
                            ORDER BY featured_deal.created_at DESC, image.sort_order ASC LIMIT 1) deal_image_secure_url,
                          (SELECT categories.image_file_name FROM categories
@@ -1845,7 +1847,7 @@ def create_app(test_config=None):
                            WHERE LOWER(categories.name) = LOWER(businesses.category) LIMIT 1) category_image_secure_url
                   FROM businesses
                   LEFT JOIN deals ON deals.business_id = businesses.id
-                     AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+                     AND deals.is_active = 1 AND deals.is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                   WHERE businesses.is_approved = 1 AND businesses.is_blocked = 0"""
         now = timestamp()
         params = [now, now, now]
@@ -1871,14 +1873,14 @@ def create_app(test_config=None):
         ).fetchone()
         if not business:
             abort(404)
-        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
+        deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
         deal_page, deal_pages, per_page, deal_offset = page_window(deal_total, "deal_page")
         deals = db.execute(
             """SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours,
                       users.phone business_phone FROM deals JOIN businesses ON businesses.id = deals.business_id
                JOIN users ON users.id = businesses.owner_id
                WHERE deals.business_id = ? AND deals.is_active = 1 AND deals.is_approved = 1
-                 AND deals.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
+                 AND deals.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
                ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
             (business_id, timestamp(), per_page, deal_offset),
         ).fetchall()
@@ -1910,7 +1912,9 @@ def create_app(test_config=None):
             """SELECT deals.*,
                       (SELECT opening_hours FROM businesses WHERE id = deals.business_id) AS opening_hours,
                       CASE
-                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
+                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
+                          CASE WHEN EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id)
+                          THEN 'Suspended — wallet' ELSE 'Live' END
                         WHEN deals.is_approved = 0 THEN 'Pending review'
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
@@ -1921,7 +1925,7 @@ def create_app(test_config=None):
         ledger_total = db.execute("SELECT COUNT(*) total FROM ledger_entries WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         activity_page, activity_pages, limit, activity_offset = page_window(ledger_total, "activity_page")
         ledger = db.execute("SELECT ledger_entries.*, codes.value code, deals.title FROM ledger_entries JOIN codes ON codes.id = ledger_entries.code_id JOIN deals ON deals.id = ledger_entries.deal_id WHERE ledger_entries.business_id = ? ORDER BY ledger_entries.created_at DESC LIMIT ? OFFSET ?", (business["id"], limit, activity_offset)).fetchall()
-        active_deal_count = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND deleted_at IS NULL AND is_active = 1 AND is_approved = 1 AND expires_at > ?", (business["id"], timestamp())).fetchone()["total"]
+        active_deal_count = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND deleted_at IS NULL AND is_active = 1 AND is_approved = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id) AND expires_at > ?", (business["id"], timestamp())).fetchone()["total"]
         return render_template("business_dashboard.html", business=business, deals=all_deals, ledger=ledger,
                                fee=redemption_fee(db, business), active_deal_count=active_deal_count,
                                deal_page=deal_page, deal_pages=deal_pages, activity_page=activity_page,
@@ -1943,7 +1947,9 @@ def create_app(test_config=None):
                       (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
                       (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url,
                       CASE
-                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
+                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
+                          CASE WHEN EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id)
+                          THEN 'Suspended — wallet' ELSE 'Live' END
                         WHEN deals.is_approved = 0 THEN 'Pending review'
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
@@ -1961,6 +1967,7 @@ def create_app(test_config=None):
             "total": deal_total,
             "live": sum(1 for deal in all_deals if deal["deal_status"] == "Live"),
             "pending": sum(1 for deal in all_deals if deal["deal_status"] == "Pending review"),
+            "suspended": sum(1 for deal in all_deals if deal["deal_status"] == "Suspended — wallet"),
             "closed": sum(1 for deal in all_deals if deal["deal_status"] in {"Closed", "Expired"}),
             "claims": sum(deal["claims"] for deal in all_deals),
             "redemptions": sum(deal["redemptions"] for deal in all_deals),
@@ -2005,7 +2012,9 @@ def create_app(test_config=None):
                       (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
                       (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_secure_url,
                       CASE
-                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN 'Live'
+                        WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
+                          CASE WHEN EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id)
+                          THEN 'Suspended — wallet' ELSE 'Live' END
                         WHEN deals.is_approved = 0 THEN 'Pending review'
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
@@ -2162,8 +2171,8 @@ def create_app(test_config=None):
             discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
             try: expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
             except ValueError: expires_at = None
-            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and expires_at > utcnow()):
-                flash("Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
+            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS)):
+                flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
                 db = get_db()
                 images = []
@@ -2231,9 +2240,9 @@ def create_app(test_config=None):
                      and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 10
                      and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None
                      and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo
-                     and expires_at and expires_at > utcnow())
+                     and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS))
             if not valid:
-                flash("Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
+                flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
                 images = []
                 previous_images = []
@@ -2607,7 +2616,7 @@ def create_app(test_config=None):
         if status == "pending":
             where = "WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved'))"
         elif status == "live":
-            where = "WHERE deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ?"
+            where = "WHERE deals.is_approved = 1 AND deals.is_active = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id) AND deals.expires_at > ?"
             filter_params = [timestamp()]
         total = db.execute(
             f"SELECT COUNT(*) AS total FROM deals {where}", filter_params
@@ -2814,7 +2823,7 @@ def create_app(test_config=None):
         summary = db.execute(
             """SELECT (SELECT COUNT(*) FROM users WHERE is_active = 1) active_users,
                       (SELECT COUNT(*) FROM businesses WHERE is_approved = 1 AND is_blocked = 0) approved_businesses,
-                      (SELECT COUNT(*) FROM deals WHERE is_active = 1 AND expires_at > ?) live_deals,
+                      (SELECT COUNT(*) FROM deals WHERE is_active = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id) AND expires_at > ?) live_deals,
                       (SELECT COUNT(*) FROM ledger_entries) redemptions,
                       (SELECT COALESCE(SUM(fee_charged), 0) FROM ledger_entries) revenue""",
             (timestamp(),),

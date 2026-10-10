@@ -22,6 +22,21 @@ def stock_remaining(db, deal):
     return max(0, deal['redemption_limit'] - max(issued, deal['redemption_count']))
 
 
+
+def sync_wallet_suspensions(db, business_id=None):
+    """Pause each deal independently using its effective redemption fee."""
+    fee = "COALESCE(deals.redemption_fee, businesses.redemption_fee, (SELECT integer_value FROM platform_settings WHERE setting_key = 'redemption_fee'), 500)"
+    scope = " AND businesses.id = ?" if business_id is not None else ""
+    params = (business_id,) if business_id is not None else ()
+    db.execute(f"""INSERT INTO wallet_suspended_deals(deal_id)
+        SELECT deals.id FROM deals JOIN businesses ON businesses.id=deals.business_id
+        WHERE businesses.wallet_balance < {fee}{scope}
+        ON CONFLICT(deal_id) DO NOTHING""", params)
+    db.execute(f"""DELETE FROM wallet_suspended_deals WHERE deal_id IN (
+        SELECT deals.id FROM deals JOIN businesses ON businesses.id=deals.business_id
+        WHERE businesses.wallet_balance >= {fee}{scope})""", params)
+
+
 def register_corrections(app, get_db, current_user, roles_required, timestamp, utcnow, audit):
     key_type = 'UUID' if app.config['DATABASE_URL'] else 'TEXT'
     with app.app_context():
@@ -36,6 +51,7 @@ def register_corrections(app, get_db, current_user, roles_required, timestamp, u
             deal_id {key_type} NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
             tag_id {key_type} NOT NULL REFERENCES category_tags(id) ON DELETE CASCADE,
             PRIMARY KEY(deal_id, tag_id))''')
+        db.execute(f'''CREATE TABLE IF NOT EXISTS wallet_suspended_deals (deal_id {key_type} PRIMARY KEY REFERENCES deals(id) ON DELETE CASCADE)''')
         db.execute(f'''CREATE TABLE IF NOT EXISTS sold_out_deals (
             deal_id {key_type} PRIMARY KEY REFERENCES deals(id) ON DELETE CASCADE,
             sold_at TEXT NOT NULL, hide_at TEXT NOT NULL)''')
@@ -103,6 +119,7 @@ def register_corrections(app, get_db, current_user, roles_required, timestamp, u
             if permission and not admin_can(permission):
                 abort(403)
         db = get_db()
+        sync_wallet_suspensions(db)
         exhausted = db.execute('''SELECT deals.id, deals.redemption_limit, deals.redemption_count,
             COALESCE(SUM(codes.quantity), 0) issued, MAX(codes.created_at) last_claim
             FROM deals LEFT JOIN codes ON codes.deal_id = deals.id
@@ -129,7 +146,9 @@ def register_corrections(app, get_db, current_user, roles_required, timestamp, u
             return {str(row['tag_id']) for row in db.execute('SELECT tag_id FROM deal_tags WHERE deal_id = ?', (deal_id,)).fetchall()}
         def staff_permissions(user_id):
             return {row['permission'] for row in db.execute('SELECT permission FROM admin_permissions WHERE user_id = ?', (user_id,)).fetchall()}
-        return dict(category_search_tags=tags, selected_deal_tags=selected_tags, staff_permissions=staff_permissions)
+        def wallet_suspended(deal):
+            return bool(db.execute('SELECT 1 FROM wallet_suspended_deals WHERE deal_id=?', (deal['id'],)).fetchone())
+        return dict(wallet_suspended=wallet_suspended, category_search_tags=tags, selected_deal_tags=selected_tags, staff_permissions=staff_permissions)
 
     @app.post('/admin/team/<string:user_id>/permissions')
     @roles_required('admin')

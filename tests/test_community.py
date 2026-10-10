@@ -80,7 +80,7 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(self.client.get(f'/deals/{self.deal}/renew').status_code, 403)
         self.login_as(self.owner)
         self.assertEqual(self.post(f'/deals/{self.deal}/renew', {'days': 0}).status_code, 400)
-        response = self.post(f'/deals/{self.deal}/renew', {'days': 30}, follow=True)
+        response = self.post(f'/deals/{self.deal}/renew', {'days': 7}, follow=True)
         self.assertIn(b'submitted for admin approval', response.data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT is_active,is_approved FROM deals').fetchone(), (0, 0))
@@ -390,7 +390,7 @@ class CommunityTests(unittest.TestCase):
         self.login_as(self.owner)
         payload = {'title': 'Furniture offer', 'description': 'A discount on new furniture.', 'terms': 'Valid in store only.',
                    'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000',
-                   'redemption_limit': '50', 'expires_at': '2030-12-31T17:00', 'tags': ['beauty-tag']}
+                   'redemption_limit': '50', 'expires_at': (utcnow() + timedelta(days=6)).strftime('%Y-%m-%dT%H:%M'), 'tags': ['beauty-tag']}
         invalid = self.post('/business/deals/new', payload, follow=True)
         self.assertIn(b'Choose tags from the selected category', invalid.data)
         with sqlite3.connect(self.path) as db:
@@ -407,3 +407,98 @@ class CommunityTests(unittest.TestCase):
         self.assertIn(b'Choose tags from the selected category', invalid_edit.data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT tag_id FROM deal_tags WHERE deal_id=?', (deal_id,)).fetchone()[0], 'shop-tag')
+
+    def test_admin_chat_search_and_vendor_conversation_privacy(self):
+        other_business = str(uuid4())
+        with sqlite3.connect(self.path) as db:
+            db.execute('INSERT INTO businesses(id,owner_id,name,category,address,city,is_approved,created_at) VALUES (?,?,?,?,?,?,1,?)',
+                       (other_business, self.other, 'Bakery Corner', 'Shopping', '1 Market Street', 'Lagos', timestamp()))
+        self.login_as(self.admin)
+        filtered = self.client.get('/chat?q=local')
+        self.assertEqual(filtered.status_code, 200)
+        self.assertIn(b'Local Store', filtered.data)
+        self.assertNotIn(b'Bakery Corner', filtered.data)
+        self.assertIn(b'Open conversation', filtered.data)
+        selected = self.client.get('/chat', query_string={'q': 'local', 'business_id': self.business})
+        self.assertIn(f'data-business-id="{self.business}"'.encode(), selected.data)
+        no_match = self.client.get('/chat?q=missing-name')
+        self.assertIn(b'No businesses match this name', no_match.data)
+        self.assertIn(b'Bakery Corner', self.client.get('/chat').data)
+        self.login_as(self.owner)
+        vendor = self.client.get('/chat?q=Bakery')
+        self.assertNotIn(b'chat-business-search', vendor.data)
+        self.assertNotIn(b'Bakery Corner', vendor.data)
+        self.assertIn(f'data-business-id="{self.business}"'.encode(), vendor.data)
+        self.assertEqual(self.client.get('/chat', query_string={'business_id': other_business}).status_code, 403)
+
+    def test_wallet_fee_suspension_and_funding_resume(self):
+        with self.client.session_transaction() as state:
+            state['consumer_id'] = self.consumer
+        claimed = self.post(f'/deals/{self.deal}/claim', {'quantity': 1})
+        self.assertIn('/codes/', claimed.headers['Location'])
+        with sqlite3.connect(self.path) as db:
+            value = db.execute('SELECT value FROM codes').fetchone()[0]
+            db.execute('UPDATE businesses SET wallet_balance=499, needs_top_up=0 WHERE id=?', (self.business,))
+            db.execute('INSERT INTO favorites(user_id,deal_id,created_at) VALUES (?,?,?)', (self.consumer, self.deal, timestamp()))
+        self.assertNotIn(b'data-offer-card', self.client.get('/deals').data)
+        self.assertEqual(self.client.get(f'/deals/{self.deal}').status_code, 404)
+        self.assertNotIn('/codes/', self.post(f'/deals/{self.deal}/claim').headers['Location'])
+        self.assertIn(b'SUSPENDED', self.client.get('/saved-deals').data)
+        self.login_as(self.owner)
+        self.assertIn('Suspended — wallet'.encode(), self.client.get('/business/deals').data)
+        blocked = self.post('/business/redeem', {'code': value}, follow=True)
+        self.assertIn(b'cannot cover', blocked.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT status FROM codes').fetchone()[0], 'active')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+            # Exactly one fee must be sufficient even below the alert threshold.
+            db.execute('UPDATE businesses SET wallet_balance=500, needs_top_up=1 WHERE id=?', (self.business,))
+        self.assertIn(b'data-offer-card', self.client.get('/deals').data)
+        redeemed = self.post('/business/redeem', {'code': value}, follow=True)
+        self.assertIn(b'Voucher validated', redeemed.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT wallet_balance FROM businesses WHERE id=?', (self.business,)).fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wallet_suspended_deals').fetchone()[0], 1)
+        self.assertNotIn(b'data-offer-card', self.client.get('/deals').data)
+
+    def test_wallet_suspension_uses_each_deals_effective_fee(self):
+        second = str(uuid4())
+        with sqlite3.connect(self.path) as db:
+            db.execute('UPDATE businesses SET wallet_balance=400, redemption_fee=300 WHERE id=?', (self.business,))
+            db.execute('UPDATE deals SET redemption_fee=500 WHERE id=?', (self.deal,))
+            db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,is_active,is_approved,created_at) VALUES (?,?,?,'Good value','Shopping','In store',?,100,1,1,?)", (second, self.business, 'Affordable deal', timestamp(utcnow()+timedelta(days=2)), timestamp()))
+        page = self.client.get('/deals')
+        self.assertIn(b'Affordable deal', page.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT deal_id FROM wallet_suspended_deals').fetchall(), [(self.deal,)])
+            db.execute('UPDATE businesses SET wallet_balance=500 WHERE id=?', (self.business,))
+        self.client.get('/deals')
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wallet_suspended_deals').fetchone()[0], 0)
+
+    def test_vendor_expiry_is_capped_on_create_edit_and_renew(self):
+        self.login_as(self.owner)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
+        payload = {'title': 'Seven day offer', 'description': 'A discount on quality products.', 'terms': 'Valid in store only.',
+                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'redemption_limit': '50',
+                   'expires_at': (utcnow()+timedelta(days=8)).strftime('%Y-%m-%dT%H:%M')}
+        invalid = self.post('/business/deals/new', payload, follow=True)
+        self.assertIn(b'next seven days', invalid.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM deals WHERE title='Seven day offer'").fetchone()[0], 0)
+        payload['expires_at'] = (utcnow()+timedelta(days=7)).strftime('%Y-%m-%dT%H:%M')
+        self.assertEqual(self.post('/business/deals/new', payload).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            deal_id = db.execute("SELECT id FROM deals WHERE title='Seven day offer'").fetchone()[0]
+            old_expiry = db.execute('SELECT expires_at FROM deals WHERE id=?', (deal_id,)).fetchone()[0]
+        payload['expires_at'] = (utcnow()+timedelta(days=8)).strftime('%Y-%m-%dT%H:%M')
+        self.assertIn(b'next seven days', self.post(f'/business/deals/{deal_id}/edit', payload, follow=True).data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT expires_at FROM deals WHERE id=?', (deal_id,)).fetchone()[0], old_expiry)
+        self.assertEqual(self.post(f'/deals/{deal_id}/renew', {'days': 8}).status_code, 400)
+        self.assertEqual(self.post(f'/deals/{deal_id}/renew', {'days': 7}).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            expiry = db.execute('SELECT expires_at FROM deals WHERE id=?', (deal_id,)).fetchone()[0]
+        from datetime import datetime
+        self.assertLessEqual(datetime.fromisoformat(expiry), utcnow()+timedelta(days=7))

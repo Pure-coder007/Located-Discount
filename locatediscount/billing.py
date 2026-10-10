@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import secrets
 
+from .corrections import sync_wallet_suspensions
+
 
 def redeem_code(db, business, code_value, redeemed_by, now, fee):
     """Redeem one code and record every financial side effect atomically.
@@ -11,12 +13,11 @@ def redeem_code(db, business, code_value, redeemed_by, now, fee):
     The caller must convert ``ValueError`` into a safe user-facing response.
     """
     db.execute("BEGIN IMMEDIATE")
+    if hasattr(db, '_database_url'):
+        db.execute("SELECT id FROM businesses WHERE id = ? FOR UPDATE", (business["id"],))
     business = db.execute("SELECT * FROM businesses WHERE id = ?", (business["id"],)).fetchone()
     if not business or not business["is_approved"] or business["is_blocked"]:
         raise ValueError("This business is not approved to validate customer codes.")
-    if business["needs_top_up"]:
-        raise ValueError("Your wallet needs a top-up before another code can be redeemed.")
-
     code = db.execute(
         """SELECT codes.*, deals.business_id, deals.is_active, deals.expires_at deal_expiry,
                   deals.id deal_id
@@ -28,6 +29,9 @@ def redeem_code(db, business, code_value, redeemed_by, now, fee):
     if (code["status"] != "active" or code["expires_at"] <= now or
             code["deal_expiry"] <= now or not code["is_active"]):
         raise ValueError("This code is expired or already redeemed.")
+
+    if business["wallet_balance"] < fee:
+        raise ValueError("Your wallet cannot cover this deal's redemption fee. Top up to resume the deal and redeem vouchers.")
 
     balance_after = business["wallet_balance"] - fee
     update = db.execute(
@@ -59,5 +63,6 @@ def redeem_code(db, business, code_value, redeemed_by, now, fee):
            VALUES (?, ?, ?, ?, ?, ?)""",
         (business["id"], code["deal_id"], code["id"], fee, balance_after, now),
     )
+    sync_wallet_suspensions(db, business["id"])
     db.commit()
     return balance_after
