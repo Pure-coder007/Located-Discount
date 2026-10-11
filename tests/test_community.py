@@ -94,6 +94,8 @@ class CommunityTests(unittest.TestCase):
     def test_expired_deals_are_red_and_absent_from_live_admin_view(self):
         with sqlite3.connect(self.path) as db:
             db.execute('UPDATE deals SET expires_at = ?', (timestamp(utcnow() - timedelta(days=1)),))
+        self.assertNotIn(b'data-offer-card', self.client.get('/').data)
+        self.assertNotIn(b'data-offer-card', self.client.get('/deals').data)
         self.login_as(self.admin)
         self.assertNotIn(b'Local offer', self.client.get('/admin/deals?status=live').data)
         page = self.client.get('/admin/deals?status=all')
@@ -146,7 +148,7 @@ class CommunityTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM codes').fetchone()[0], 0)
         response = self.post(f'/deals/{self.deal}/claim', {'name': 'Customer', 'phone': '+2348097654321', 'stars': '5'}, follow=True)
         self.assertIn(b'How would you rate this deal', response.data)
-        self.assertIn('⭐️⭐️⭐️⭐️⭐️'.encode(), response.data)
+        self.assertIn(b'value="5" checked', response.data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT stars FROM deal_ratings').fetchone()[0], 5)
             self.assertEqual(db.execute('SELECT status FROM codes').fetchone()[0], 'active')
@@ -297,18 +299,18 @@ class CommunityTests(unittest.TestCase):
         self.assertNotIn(b'data-chat-history', self.client.get('/chat').data)
         self.assertIn(b'data-chat-history', self.client.get(f'/chat?business_id={self.business}').data)
 
-    def test_actual_stock_large_quantity_midnight_and_existing_redemption(self):
+    def test_actual_stock_midnight_and_existing_redemption(self):
         with sqlite3.connect(self.path) as db:
-            db.execute('UPDATE deals SET discount_price_kobo=1050, regular_price_kobo=1500')
+            db.execute('UPDATE deals SET discount_price_kobo=1050, regular_price_kobo=1500, redemption_limit=3')
         with self.client.session_transaction() as state:
             state['consumer_id'] = self.consumer
-        response = self.post(f'/deals/{self.deal}/claim', {'quantity': '100'})
+        response = self.post(f'/deals/{self.deal}/claim', {'quantity': '3'})
         self.assertIn('/codes/', response.headers['Location'])
-        self.assertIn('₦1,050.00'.encode(), self.client.get(response.headers['Location']).data)
+        self.assertIn('₦31.50'.encode(), self.client.get(response.headers['Location']).data)
         live = self.client.get('/deals')
         self.assertIn(b'SOLD OUT', live.data)
         with sqlite3.connect(self.path) as db:
-            self.assertEqual(db.execute('SELECT quantity FROM codes').fetchone()[0], 100)
+            self.assertEqual(db.execute('SELECT quantity FROM codes').fetchone()[0], 3)
             hidden_at = db.execute('SELECT hide_at FROM sold_out_deals').fetchone()[0]
             self.assertTrue(hidden_at.endswith('23:00:00'))
             db.execute("UPDATE sold_out_deals SET hide_at='2000-01-01 23:00:00'")
@@ -319,8 +321,47 @@ class CommunityTests(unittest.TestCase):
         redeemed = self.post('/business/redeem', {'code': value}, follow=True)
         self.assertIn(b'Voucher validated', redeemed.data)
         with sqlite3.connect(self.path) as db:
-            self.assertEqual(db.execute('SELECT redemption_count FROM deals').fetchone()[0], 100)
+            self.assertEqual(db.execute('SELECT redemption_count FROM deals').fetchone()[0], 3)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 1)
+
+    def test_daily_allocation_is_real_and_resets_at_lagos_midnight(self):
+        from locatediscount.corrections import daily_voucher_remaining
+        from unittest.mock import patch
+        from datetime import datetime, timezone
+        now = datetime(2026, 10, 11, 22, 59, tzinfo=timezone.utc)
+        with sqlite3.connect(self.path) as db:
+            db.row_factory = sqlite3.Row
+            deal = db.execute('SELECT * FROM deals').fetchone()
+            initial = daily_voucher_remaining(db, deal, now)
+            self.assertTrue(3 <= initial <= 7)
+            db.execute("INSERT INTO codes(deal_id,user_id,value,status,expires_at,created_at,quantity) VALUES (?,?,?,'active',?,?,?)", (self.deal, self.other, 'LD-DAILY123', timestamp(now + timedelta(days=1)), timestamp(now), initial))
+            self.assertEqual(daily_voucher_remaining(db, deal, now), 0)
+            tomorrow = now + timedelta(minutes=2)
+            self.assertTrue(3 <= daily_voucher_remaining(db, deal, tomorrow) <= 7)
+        with self.client.session_transaction() as state:
+            state['consumer_id'] = self.consumer
+        with patch('app.utcnow', return_value=now):
+            response = self.post(f'/deals/{self.deal}/claim', {'quantity': '1'}, follow=True)
+            self.assertIn(b"today&#39;s voucher allocation", response.data)
+            page = self.client.get(f'/deals/{self.deal}').data
+            self.assertIn(b"Today's allocation claimed", page)
+            self.assertNotIn(b'>SOLD OUT<', page)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM codes').fetchone()[0], 1)
+
+    def test_vendor_expiry_timezone_conversion(self):
+        from app import parse_vendor_expiry
+        self.assertEqual(parse_vendor_expiry({'expires_at': '2026-10-12T14:00', 'expiry_timezone_offset': '-60'}).isoformat(), '2026-10-12T13:00:00+00:00')
+        self.assertEqual(parse_vendor_expiry({'expires_at': '2026-10-12T14:00', 'expiry_timezone_offset': '240'}).isoformat(), '2026-10-12T18:00:00+00:00')
+
+    def test_home_has_twelve_deals_per_page(self):
+        with sqlite3.connect(self.path) as db:
+            for index in range(12):
+                db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,is_active,is_approved,review_status,created_at) VALUES (?,?,?,?,?,?,?,100,1,1,'approved',?)", (str(uuid4()), self.business, f'Offer {index}', 'Local discount', 'Shopping', 'In store only', timestamp(utcnow() + timedelta(days=2)), timestamp()))
+        first = self.client.get('/').data
+        self.assertEqual(first.count(b'data-offer-card'), 12)
+        self.assertIn(b'Next', first)
+        self.assertEqual(self.client.get('/?page=2').data.count(b'data-offer-card'), 1)
 
     def test_sub_admin_permissions_enforced_and_updated(self):
         with sqlite3.connect(self.path) as db:

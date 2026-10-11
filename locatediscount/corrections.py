@@ -1,4 +1,5 @@
 """Category search tags, staff permissions and actual voucher stock."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -21,6 +22,18 @@ def stock_remaining(db, deal):
     issued = db.execute('SELECT COALESCE(SUM(quantity), 0) total FROM codes WHERE deal_id = ?', (deal['id'],)).fetchone()['total']
     return max(0, deal['redemption_limit'] - max(issued, deal['redemption_count']))
 
+
+
+
+def daily_voucher_remaining(db, deal, now=None):
+    """A genuine 3–7 voucher daily allocation, resetting at Lagos midnight."""
+    now = now or datetime.now(timezone.utc)
+    local = now.astimezone(timezone(timedelta(hours=1)))
+    start = datetime.combine(local.date(), datetime.min.time(), tzinfo=local.tzinfo).astimezone(timezone.utc).isoformat(timespec='seconds')
+    seed = hashlib.sha256(f"{deal['id']}:{local.date().isoformat()}".encode()).hexdigest()
+    capacity = 3 + int(seed[:8], 16) % 5
+    issued_today = db.execute('SELECT COALESCE(SUM(quantity), 0) total FROM codes WHERE deal_id=? AND created_at>=?', (deal['id'], start)).fetchone()['total']
+    return max(0, min(stock_remaining(db, deal), capacity - issued_today))
 
 
 def sync_wallet_suspensions(db, business_id=None):
@@ -148,7 +161,7 @@ def register_corrections(app, get_db, current_user, roles_required, timestamp, u
             return {row['permission'] for row in db.execute('SELECT permission FROM admin_permissions WHERE user_id = ?', (user_id,)).fetchall()}
         def wallet_suspended(deal):
             return bool(db.execute('SELECT 1 FROM wallet_suspended_deals WHERE deal_id=?', (deal['id'],)).fetchone())
-        return dict(wallet_suspended=wallet_suspended, category_search_tags=tags, selected_deal_tags=selected_tags, staff_permissions=staff_permissions)
+        return dict(total_voucher_remaining=lambda deal: stock_remaining(db, deal), wallet_suspended=wallet_suspended, category_search_tags=tags, selected_deal_tags=selected_tags, staff_permissions=staff_permissions)
 
     @app.post('/admin/team/<string:user_id>/permissions')
     @roles_required('admin')

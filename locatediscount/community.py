@@ -14,7 +14,7 @@ from werkzeug.exceptions import HTTPException
 
 def register_community(app, get_db, current_user, consumer_profile, business_for_user,
                        roles_required, timestamp, utcnow, parse_timestamp,
-                       redemption_fee, audit, voucher_remaining, admin_can):
+                       redemption_fee, audit, voucher_remaining, admin_can, daily_remaining):
     # Explicit IDs work with both database adapters without changing existing IDs.
     key_type = 'UUID' if app.config['DATABASE_URL'] else 'TEXT'
     with app.app_context():
@@ -275,4 +275,4 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
             get_db().rollback()
 
     from .support import register_support
-    register_support(app, get_db, timestamp, days_left, voucher_remaining)
+    register_support(app, get_db, timestamp, days_left, daily_remaining)

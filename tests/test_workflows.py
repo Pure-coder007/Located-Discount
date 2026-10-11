@@ -115,6 +115,13 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         connection.close()
         response = self.post("/business/wallet", {"amount": "5000", "reference": "BANK-TEST-001", "note": "Pilot funding"})
         self.assertEqual(response.status_code, 302)
+        # New manual submissions are rejected; historical pending transfers stay reviewable.
+        connection = sqlite3.connect(self.database)
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM wallet_transactions WHERE reference='BANK-TEST-001'").fetchone()[0], 0)
+        business_id = connection.execute("SELECT business_id FROM deals WHERE id=?", (created_deal_id,)).fetchone()[0]
+        connection.execute("INSERT INTO wallet_transactions(business_id,amount,kind,status,reference,created_at) VALUES (?,5000,'topup','pending','BANK-TEST-001',?)", (business_id, timestamp()))
+        connection.commit()
+        connection.close()
         self.logout()
 
         self.create_admin()

@@ -1,9 +1,22 @@
 (() => {
   document.querySelectorAll('[data-rating-picker]').forEach(picker => {
-    const select = picker.querySelector('select');
+    const inputs = [...picker.querySelectorAll('input[name="stars"]')];
     const preview = picker.querySelector('[data-rating-preview]');
-    const show = () => { const stars = Number(select.value); if (select.form?.action.endsWith('/rate')) select.form.querySelector('button[type=submit]').disabled = !stars; preview.textContent = stars ? `${'⭐️'.repeat(stars)} — ${stars} out of 5` : 'Your rating is optional.'; };
-    select.addEventListener('change', show); show();
+    const show = (hover) => {
+      const selected = Number(inputs.find(input => input.checked)?.value || 0);
+      const stars = hover || selected;
+      inputs.forEach(input => input.closest('label').classList.toggle('is-filled', Number(input.value) <= stars));
+      preview.textContent = selected ? `${selected}/5 — ${['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'][selected]}` : 'Optional · choose your stars';
+      const form = inputs[0]?.form;
+      if (form?.action.endsWith('/rate')) form.querySelector('button[type=submit]').disabled = !selected;
+    };
+    inputs.forEach(input => {
+      input.addEventListener('change', () => show());
+      input.closest('label').addEventListener('pointerenter', () => show(Number(input.value)));
+    });
+    picker.querySelector('.rating-stars').addEventListener('pointerleave', () => show());
+    picker.querySelector('[data-rating-clear]').addEventListener('click', () => { inputs.forEach(input => input.checked = false); show(); });
+    show();
   });
   document.addEventListener('click', event => {
     const thumbnail = event.target.closest('[data-offer-image]');

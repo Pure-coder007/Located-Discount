@@ -100,7 +100,7 @@ The command is idempotent. It creates 10 approved demo vendors, 50 distinct prod
 1. The merchant selects **Business** during registration and supplies owner name, email, phone, password, business name, category, address, and city.
 2. The server validates the fields before creating a user and a linked business record. Passwords require at least 12 characters containing letters and numbers, then are stored only as salted hashes.
 3. The new business starts in a pending-review state with a `₦0` wallet and `₦2,000` default low-balance threshold. An admin must approve it before operational actions are available.
-4. In **Wallet**, the merchant can pay through Paystack for automatic verified credit, or submit a manual bank-transfer reference for administrator review.
+4. In **Wallet**, the merchant can pay through Paystack for automatic verified credit, including bank transfer. New manual transfer submissions are disabled; administrators can still review historical pending transfers.
 5. A successful Paystack confirmation credits the wallet exactly once. Manual transfers remain pending until an administrator approves them.
 6. The merchant clicks **Create deal**, enters the title, description, category, terms, an expiry within seven days, and redemption limit. The page forecasts cost using the current fee, for example `₦150 x 50 = ₦7,500`.
 7. The server publishes an active deal only if all validation checks pass. A deal closes automatically when it expires or reaches its redemption limit.
@@ -194,7 +194,7 @@ Run the complete, isolated workflow test suite with:
 python3 -m unittest discover -s tests -v
 ```
 
-The tests cover business registration, deal creation, manual top-up submission and approval, first-claim customer profile creation, QR code generation, persistent My Codes access, vendor-only redemption, duplicate-redemption prevention, wallet/ledger consistency, admin categories, sub-admins, audit logs, analytics, password recovery, and CSRF enforcement.
+The tests cover business registration, deal creation, rejection of new manual top-ups, historical transfer approval, first-claim customer profile creation, QR code generation, persistent My Codes access, vendor-only redemption, duplicate-redemption prevention, wallet/ledger consistency, admin categories, sub-admins, audit logs, analytics, password recovery, and CSRF enforcement.
 
 ## Production Checklist
 
@@ -282,3 +282,5 @@ Nearby address matching normalizes punctuation and common address words, and
 checks full-address components as well as regional aliases. More specific matches
 are ranked before broader city/state matches. Discovery remains address-based,
 since businesses currently have no latitude/longitude coordinates.
+
+Daily voucher availability is a real allocation of 3–7 vouchers per deal, reset at midnight Africa/Lagos, capped by remaining total stock. Claims enforce the displayed allocation. Vendor expiry selections use browser local time and are stored in UTC, with a maximum seven-day duration.

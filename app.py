@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from locatediscount.corrections import register_corrections, stock_remaining
+from locatediscount.corrections import register_corrections, stock_remaining, daily_voucher_remaining
 from locatediscount.discovery import location_terms as parse_location_terms, location_match_sql
 from locatediscount.billing import redeem_code
 from locatediscount.database import (
@@ -76,6 +76,18 @@ def timestamp(value=None):
 
 def parse_timestamp(value):
     return datetime.fromisoformat(value)
+
+
+
+def parse_vendor_expiry(form):
+    """Convert the vendor's selected local time to UTC; no-JS forms use UTC."""
+    value = datetime.fromisoformat(form.get('expires_at', ''))
+    if value.tzinfo is None:
+        offset = int(form.get('expiry_timezone_offset', '0'))
+        if not -840 <= offset <= 840:
+            raise ValueError('Invalid timezone offset.')
+        value = value.replace(tzinfo=timezone(timedelta(minutes=-offset)))
+    return value.astimezone(timezone.utc)
 
 
 def create_app(test_config=None):
@@ -621,7 +633,7 @@ def create_app(test_config=None):
                     admin_attention[key] = 0
             admin_attention["total"] = sum(admin_attention.values())
         return {
-            "voucher_remaining": lambda deal: voucher_stock_remaining(get_db(), deal),
+            "voucher_remaining": lambda deal: daily_voucher_remaining(get_db(), deal, utcnow()),
             "current_user": user,
             "admin_can": admin_can,
             "admin_permission_choices": permission_choices,
@@ -1256,7 +1268,7 @@ def create_app(test_config=None):
             params = params[:-2 * len(location_terms)]
             total = db.execute(f"SELECT COUNT(*) total FROM ({sql}) filtered_deals", params).fetchone()["total"]
             location_fallback = True
-        page, total_pages, per_page, offset = page_window(total)
+        page, total_pages, per_page, offset = page_window(total, per_page=12)
         sql += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
         deals = db.execute(sql, [*params, *proximity_params, per_page, offset]).fetchall()
         category_sql = """SELECT categories.*, COUNT(DISTINCT CASE WHEN businesses.id IS NOT NULL THEN deals.id END) AS deal_count"""
@@ -1577,7 +1589,7 @@ def create_app(test_config=None):
             "SELECT 1 FROM favorites WHERE user_id = ? AND deal_id = ?", (consumer["id"], deal_id)
         ).fetchone()) or deal_id in session.get("saved_deals", [])
         images = get_db().execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order", (deal_id,)).fetchall()
-        daily_remaining = voucher_stock_remaining(get_db(), deal)
+        daily_remaining = daily_voucher_remaining(get_db(), deal, utcnow())
         return render_template("deal_detail.html", deal=deal, consumer=consumer, is_favorite=is_favorite,
                                images=images, daily_remaining=daily_remaining,
                                opening_hours=opening_hours_by_day(deal["opening_hours"]))
@@ -1673,6 +1685,8 @@ def create_app(test_config=None):
                     raise ValueError("You have reached this deal's voucher limit per customer.")
             if voucher_stock_remaining(db, deal) < quantity:
                 raise ValueError("The requested quantity exceeds the vouchers remaining for this deal.")
+            if daily_voucher_remaining(db, deal, utcnow()) < quantity:
+                raise ValueError("The requested quantity exceeds today's voucher allocation. Choose fewer vouchers or return tomorrow.")
             reservation = db.execute(
                 """INSERT INTO device_deal_claims (deal_id, device_id, created_at)
                    VALUES (?, ?, ?) ON CONFLICT (deal_id, device_id) DO NOTHING""",
@@ -2169,7 +2183,7 @@ def create_app(test_config=None):
             except ValueError: customer_limit = -1
             regular_price_kobo = naira_to_kobo(request.form.get("regular_price", ""))
             discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
-            try: expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
+            try: expires_at = parse_vendor_expiry(request.form)
             except ValueError: expires_at = None
             if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS)):
                 flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
@@ -2233,7 +2247,7 @@ def create_app(test_config=None):
             regular_price_kobo = naira_to_kobo(request.form.get("regular_price", ""))
             discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
             try:
-                expires_at = datetime.fromisoformat(expiry).replace(tzinfo=timezone.utc)
+                expires_at = parse_vendor_expiry(request.form)
             except ValueError:
                 expires_at = None
             valid = (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None
@@ -2338,17 +2352,9 @@ def create_app(test_config=None):
                     get_db().execute("UPDATE businesses SET low_balance_threshold = ? WHERE id = ?", (threshold_value, business["id"]))
                     flash("Low-balance alert updated.", "success")
                     return redirect(url_for("wallet"))
-            try: amount = int(request.form.get("amount", "0"))
-            except ValueError: amount = 0
-            reference = request.form.get("reference", "").strip().upper()
-            if not 500 <= amount <= 10_000_000 or not REFERENCE_RE.fullmatch(reference):
-                flash("Enter a top-up amount from ₦500 and a valid bank transfer reference.", "danger")
-            else:
-                try:
-                    get_db().execute("INSERT INTO wallet_transactions (business_id, amount, kind, status, reference, note, created_at) VALUES (?, ?, 'topup', 'pending', ?, ?, ?)", (business["id"], amount, reference, request.form.get("note", "").strip()[:250], timestamp()))
-                    flash("Top-up request submitted. Your wallet will update after payment verification.", "success")
-                except INTEGRITY_ERRORS: flash("That transfer reference has already been submitted.", "danger")
-                return redirect(url_for("wallet"))
+            if request.form.get('amount') or request.form.get('reference'):
+                flash('Use Paystack to fund your wallet, including bank transfers. New manual transfers are no longer accepted.', 'info')
+                return redirect(url_for('wallet'))
         db = get_db()
         total = db.execute("SELECT COUNT(*) total FROM wallet_transactions WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
@@ -3197,7 +3203,8 @@ def create_app(test_config=None):
     from locatediscount.community import register_community
     register_community(app, get_db, current_user, current_consumer_profile, business_for_user,
                        roles_required, timestamp, utcnow, parse_timestamp, redemption_fee, record_admin_action,
-                       lambda deal: voucher_stock_remaining(get_db(), deal), admin_can)
+                       lambda deal: voucher_stock_remaining(get_db(), deal), admin_can,
+                       lambda deal: daily_voucher_remaining(get_db(), deal, utcnow()))
     return app
 
 

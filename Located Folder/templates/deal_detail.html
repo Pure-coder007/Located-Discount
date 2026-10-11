@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}{{ deal.title }} | Locatediscount{% endblock %}
-{% block extra_head %}<script src="{{ url_for('static', filename='js/deal-detail.js', v='20260925-2') }}" defer></script>{% endblock %}
+{% block extra_head %}<script src="{{ url_for('static', filename='js/deal-detail.js', v='20261011') }}" defer></script>{% endblock %}
 {% block content %}
 
 <div class="deal-page">
@@ -9,11 +9,11 @@
   <article class="deal-showcase">
     <div class="deal-showcase-media">
       {% if images %}
-        <img class="deal-main-image" data-gallery-image="{{ product_image_url(images[0]) if images else '' }}" src="{{ product_image_url(images[0]) }}" alt="{{ deal.title }}">
+        <img class="deal-main-image" tabindex="0" role="button" aria-label="Open photo gallery" data-gallery-image="{{ product_image_url(images[0]) if images else '' }}" src="{{ product_image_url(images[0]) }}" alt="{{ deal.title }}">
       {% else %}
         <i class="bi bi-ticket-perforated" aria-hidden="true"></i>
       {% endif %}
-      {% if daily_remaining == 0 %}<strong class="sold-out-banner">SOLD OUT</strong>{% endif %}
+      {% if total_voucher_remaining(deal) == 0 %}<strong class="sold-out-banner">SOLD OUT</strong>{% endif %}
       <span class="deal-category">{{ deal.category }}</span>
       {% if images|length > 1 %}<div class="deal-gallery-thumbs">{% for image in images %}<button type="button" class="deal-gallery-thumb {% if loop.first %}is-selected{% endif %}" data-gallery-image="{{ product_image_url(image) }}" aria-label="Show image {{ loop.index }}"><img src="{{ product_image_url(image) }}" alt=""></button>{% endfor %}</div>{% endif %}
     </div>
@@ -30,7 +30,7 @@
 
         <p class="deal-description">{{ deal.description }}</p>
         <div class="deal-countdown" data-countdown="{{ deal.expires_at }}"><i class="bi bi-clock"></i> <span>{{ days_left(deal) }} days to go</span></div>
-        <p class="deal-availability">{{ daily_remaining }} vouchers remaining</p>
+        <p class="deal-availability">{% if daily_remaining %}{{ daily_remaining }} vouchers left today{% else %}Today's allocation claimed. Returns at midnight Lagos time.{% endif %}</p>
         <a class="deal-vendor" href="{{ url_for('vendor_detail', business_id=deal.business_id) }}">
           <span><i class="bi bi-shop"></i></span>
           <span><b>{{ deal.business_name }}</b><small>{{ deal.address }}, {{ deal.city }}</small></span>
@@ -43,7 +43,7 @@
         <span class="deal-claim-icon"><i class="bi bi-ticket-perforated"></i></span>
         <h2>Claim this deal</h2>
         <p>Get your voucher, then show it when you visit.</p>
-        {% if daily_remaining > 0 %}<a class="deal-claim-button" href="{{ url_for('claim_code', deal_id=deal.id) }}">Get voucher <i class="bi bi-arrow-right"></i></a>{% else %}<p class="deal-sold-out">SOLD OUT</p>{% endif %}
+        {% if daily_remaining > 0 %}<a class="deal-claim-button" href="{{ url_for('claim_code', deal_id=deal.id) }}">Get voucher <i class="bi bi-arrow-right"></i></a>{% else %}<p class="deal-sold-out">{{ 'SOLD OUT' if total_voucher_remaining(deal) == 0 else 'More vouchers at midnight Lagos time' }}</p>{% endif %}
         <form method="post" action="{{ url_for('toggle_favorite', deal_id=deal.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="deal-save-button" type="submit"><i class="bi {% if is_favorite %}bi-heart-fill{% else %}bi-heart{% endif %}"></i> {% if is_favorite %}Saved{% else %}Save for later{% endif %}</button>
@@ -57,6 +57,6 @@
     <details><summary><i class="bi bi-info-circle"></i> Offer terms</summary><p>{{ deal.terms }}</p></details>
   </div>
 </div>
-<div class="deal-lightbox" data-lightbox hidden role="dialog" aria-modal="true" aria-label="Expanded deal image"><button type="button" class="deal-lightbox-close" data-lightbox-close aria-label="Close image"><i class="bi bi-x-lg"></i></button><img data-lightbox-image src="" alt="{{ deal.title }}"></div>
+<div class="deal-lightbox" data-lightbox hidden role="dialog" aria-modal="true" aria-label="Expanded deal image"><button type="button" class="deal-lightbox-close" data-lightbox-close aria-label="Close image"><i class="bi bi-x-lg"></i></button><button type="button" class="gallery-nav gallery-prev" data-lightbox-prev aria-label="Previous photo">‹</button><img data-lightbox-image draggable="false" alt="{{ deal.title }}"><button type="button" class="gallery-nav gallery-next" data-lightbox-next aria-label="Next photo">›</button><output class="gallery-counter" data-lightbox-counter aria-live="polite"></output></div>
 
 {% endblock %}
