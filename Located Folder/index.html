@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/homepage-video.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/homepage-video.css', v='original-hero-20261011') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/homepage-scale.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/homepage-products.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/homepage-nav.css') }}" rel="stylesheet" />
@@ -19,7 +19,7 @@
 
 
 <script src="{{ url_for('static', filename='js/page-loader.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/location-nearby.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/location-nearby.js', v='precise-20261011') }}" defer></script>
 <script src="{{ url_for('static', filename='js/home-search-suggestions.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/mobile-nav.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/deal-directions.js') }}" defer></script>
@@ -28,7 +28,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/marketplace.css') }}">
 <script src="{{ url_for('static', filename='js/public-experience.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/support.js') }}" defer></script>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/site-refresh.css', v='hero-readable-20261011') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/site-refresh.css', v='hero-bright-text-20261011') }}">
 </head>
 
 <body class="market-home">
@@ -52,9 +52,7 @@
             <i class="bi bi-geo-alt-fill"></i> {{ area or 'Finding deals near you' }}
                 </p>
                 <h1>Find your next<br><span>local favourite.</span></h1>
-                <p class="hero-copy">
-                    Great places. Better prices. Discover offers from businesses around you and make every visit worth more.
-                </p>
+
 
                 <form class="hero-reference-search" method="get" action="{{ url_for('home') }}" data-home-search>
                     <div class="hero-reference-field">
@@ -97,16 +95,19 @@
                     </div>
 
 
+                    {% for key,value in nearby_query.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}" data-nearby-param>{% endfor %}
                     <input type="hidden" name="sort" value="{{ selected_sort }}" />
                     <button class="hero-reference-submit" type="submit">Search</button>
                 </form>
-                <div class="nearby-tools"><button type="button" data-use-location><i class="bi bi-crosshair"></i> Deals near me</button><span>Find offers by your neighbourhood or address</span><p data-location-status role="status"></p></div>
+                <div class="nearby-tools"><button type="button" data-use-location><i class="bi bi-crosshair"></i> Deals near me</button><p data-location-status role="status"></p></div>
+
                 </div>
                 </section>
 
                                 {% from '_deal_card.html' import deal_card with context %}
                 <section class="section home-live-deals">
-                  <div class="market-section-heading"><div><span class="market-eyebrow">DISCOVER MORE. SPEND LESS.</span><h2>{% if area and not location_fallback %}Great deals around you{% else %}Your next great deal starts here{% endif %}</h2><p>Real offers from local businesses. All the details before you claim.</p></div><a class="market-text-link" href="{{ url_for('deals', area=area, q=query, category=selected_category) }}">Explore all deals <i class="bi bi-arrow-up-right"></i></a></div>
+                  <div class="market-section-heading"><div><span class="market-eyebrow">DISCOVER MORE. SPEND LESS.</span><h2>{% if area and not location_fallback %}Great deals around you{% else %}Your next great deal starts here{% endif %}</h2><p>Real offers from local businesses. All the details before you claim.</p></div><a class="market-text-link" href="{{ url_for('deals', area=area, q=query, category=selected_category, **nearby_query) }}">Explore all deals <i class="bi bi-arrow-up-right"></i></a></div>
+                  {% include '_nearby_note.html' %}
                   {% if location_fallback %}<div class="market-location-note"><i class="bi bi-compass"></i>We couldn’t match “{{ area }}” to a live offer. Explore all current deals below, or try a shorter area name.</div>{% endif %}
                   <div class="market-deal-grid">{% for deal in deals %}{{ deal_card(deal) }}{% else %}<div class="market-empty"><i class="bi bi-ticket-perforated"></i><h3>No live offers match your search</h3><p>Try another area or category, or ask our platform guide for help.</p><a href="{{ url_for('deals') }}">Explore all deals →</a></div>{% endfor %}</div>
                   {% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='deals') }}
@@ -127,7 +128,7 @@
           {% for category in category_tiles %}
           <a
             class="category-card {% if loop.first %}category-card-featured{% endif %}"
-            href="{{ url_for('deals', area=area, category=category.name) }}"
+            href="{{ url_for('deals', area=area, category=category.name, **nearby_query) }}"
           >
             {% if category.image_file_name or category.image_secure_url %}<img
               src="{{ category_image_url(category) }}"

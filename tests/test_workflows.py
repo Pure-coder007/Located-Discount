@@ -475,6 +475,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         balance = connection.execute("SELECT wallet_balance FROM businesses WHERE id = ?", (business_id,)).fetchone()[0]
         connection.close()
         self.assertEqual(balance, 5000)
+        self.assertEqual(sum(message['event'] == 'wallet_topup' for message in self.app.extensions['mail_outbox']), 1)
 
     def test_admin_tools_categories_audit_and_password_recovery(self):
         self.create_admin()

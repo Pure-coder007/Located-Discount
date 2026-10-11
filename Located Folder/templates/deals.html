@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}{% if selected_category %}{{ selected_category }} deals{% else %}Local deals{% endif %} | Locatediscount{% endblock %}
-{% block extra_head %}<script src="{{ url_for('static', filename='js/home-search-suggestions.js') }}" defer></script>{% endblock %}
+{% block extra_head %}<script src="{{ url_for('static', filename='js/home-search-suggestions.js') }}" defer></script><script src="{{ url_for('static',filename='js/location-nearby.js',v='precise-20261011') }}" defer></script>{% endblock %}
 {% block content %}
 <section class="public-page-hero">
   <div>
@@ -11,6 +11,7 @@
       <div class="catalogue-search-field"><input id="home-search-query" name="q" value="{{ query }}" placeholder="Search deals or vendors" autocomplete="off"><div id="home-search-suggestions" class="home-search-suggestions" hidden></div></div>
       <input id="home-search-area" name="area" value="{{ area }}" placeholder="City or area">
       <select id="home-search-category" name="category" aria-label="Filter by category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>
+      {% for key,value in nearby_query.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}" data-nearby-param>{% endfor %}
       <button type="submit"><i class="bi bi-search"></i> Find deals</button>
     </form>
   </div>
@@ -20,7 +21,7 @@
   <div><p class="app-label">Deal catalogue</p><h2 class="mt-1 text-xl font-extrabold">{{ total }} deal{% if total != 1 %}s{% endif %} found</h2></div>
   {% if query or area or selected_category %}<a class="text-xs font-extrabold text-pine" href="{{ url_for('deals') }}">Clear filters <i class="bi bi-x-circle"></i></a>{% endif %}
 </div>
-{% if location_fallback %}<div class="location-fallback"><i class="bi bi-compass"></i><span><strong>Showing the full marketplace</strong><small>There are no live deals in {{ area }} yet, so you can still browse every category and offer.</small></span><a href="{{ url_for('deals') }}">Clear location <i class="bi bi-arrow-right"></i></a></div>{% endif %}
+{% include '_nearby_note.html' %}{% if location_fallback %}<div class="location-fallback"><i class="bi bi-compass"></i><span><strong>Showing the full marketplace</strong><small>There are no live deals in {{ area }} yet, so you can still browse every category and offer.</small></span><a href="{{ url_for('deals') }}">Clear location <i class="bi bi-arrow-right"></i></a></div>{% endif %}
 {% from '_deal_card.html' import deal_card with context %}
 <section class="market-deal-grid">{% for deal in deals %}{{ deal_card(deal) }}{% else %}<div class="market-empty"><i class="bi bi-ticket-perforated"></i><h2>{% if selected_category %}No deals in {{ selected_category }} yet{% else %}No deals match yet{% endif %}</h2><p>Try another search, category, city or address.</p></div>{% endfor %}</section>
 {% from '_pagination.html' import pager with context %}{{ pager(page, total_pages, total, label='deals') }}

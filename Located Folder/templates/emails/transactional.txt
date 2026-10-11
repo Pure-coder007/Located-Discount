@@ -1,0 +1,14 @@
+{{ subject }}
+
+Hello {{ name }},
+
+{{ message }}
+{% for label,value in details %}
+{{ label }}: {{ value }}{% endfor %}
+{% if action_url %}
+{{ button }}: {{ action_url }}
+{% endif %}
+{% if event == 'verification' %}This verification link is valid for 24 hours.{% elif event in ['password_reset','admin_invitation'] %}This secure link expires in 30 minutes. If you didn't request this email, ignore it.{% elif event == 'password_changed' %}If this wasn't you, reset your password and contact support immediately.{% endif %}
+
+The Locatediscount team
+{% if support_email %}Support: {{ support_email }}{% endif %}

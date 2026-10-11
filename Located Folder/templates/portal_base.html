@@ -24,6 +24,7 @@
 {% if admin_can("codes") %}          <a href="{{ url_for('admin_code_activity') }}" class="portal-nav {% if request.endpoint == 'admin_code_activity' %}portal-nav-active{% endif %}"><i class="bi bi-fingerprint"></i> Code activity</a>{% endif %}
 {% if admin_can("analytics") %}          <a href="{{ url_for('admin_analytics') }}" class="portal-nav {% if request.endpoint == 'admin_analytics' %}portal-nav-active{% endif %}"><i class="bi bi-bar-chart"></i> Analytics</a>{% endif %}
 {% if admin_can("categories") %}          <a href="{{ url_for('admin_categories') }}" class="portal-nav {% if request.endpoint in ('admin_categories', 'toggle_category', 'delete_category', 'edit_category') %}portal-nav-active{% endif %}"><i class="bi bi-tags"></i> Categories</a>{% endif %}
+{% if admin_can("team") %}<a href="{{ url_for('email_previews') }}" class="portal-nav"><i class="bi bi-envelope"></i> Email previews</a>{% endif %}
 {% if admin_can("team") %}          <a href="{{ url_for('admin_team') }}" class="portal-nav {% if request.endpoint in ('admin_team', 'toggle_admin') %}portal-nav-active{% endif %}"><i class="bi bi-people"></i> Admin team</a>{% endif %}
 {% if admin_can("audit") %}          <a href="{{ url_for('admin_audit_logs') }}" class="portal-nav {% if request.endpoint == 'admin_audit_logs' %}portal-nav-active{% endif %}"><i class="bi bi-shield-check"></i> Audit logs</a>{% endif %}
           {% if admin_can('categories') %}<a href="{{ url_for('admin_tags') }}" class="portal-nav"><i class="bi bi-tags"></i> Search tags</a>{% endif %}
@@ -41,7 +42,9 @@
           {% endif %}
           <a href="{{ url_for('home') }}" class="portal-nav"><i class="bi bi-shop-window"></i> Marketplace</a>
           {% endif %}
-        {% if current_user.role != "admin" or admin_can("chat") %}<a href="{{ url_for('chat') }}" class="portal-nav"><i class="bi bi-chat-dots"></i> Chat with Admin <b class="portal-nav-badge" data-chat-unread-total {% if not chat_unread_total %}hidden{% endif %}>{{ chat_unread_total }}</b></a>{% endif %}</nav>
+        {% if current_user.role != "admin" or admin_can("chat") %}<a href="{{ url_for('chat') }}" class="portal-nav"><i class="bi bi-chat-dots"></i> Chat with Admin <b class="portal-nav-badge" data-chat-unread-total {% if not chat_unread_total %}hidden{% endif %}>{{ chat_unread_total }}</b></a>{% endif %}{% if current_user.role == 'business' %}<a href="{{ url_for('business_location') }}" class="portal-nav"><i class="bi bi-geo-alt"></i> Business location</a>{% endif %}
+{% if current_user.role in ['business','admin'] %}<a href="{{ url_for('email_verification') }}" class="portal-nav"><i class="bi bi-envelope-check"></i> {{ 'Verify email' if email_verification_pending else 'Email verification' }}</a>{% endif %}
+</nav>
       </div>
       <div class="portal-sidebar-account mt-7 rounded-2xl bg-white/70 p-4 lg:mt-auto">
         <div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-mint text-sm font-extrabold text-pine">{{ current_user.name[:1]|upper }}</span><div class="min-w-0"><p class="truncate text-sm font-extrabold text-ink">{{ current_user.name }}</p><p class="truncate text-[11px] font-semibold text-slate-500">{{ current_user.role|title }}</p></div></div>

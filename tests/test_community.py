@@ -354,6 +354,124 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(parse_vendor_expiry({'expires_at': '2026-10-12T14:00', 'expiry_timezone_offset': '-60'}).isoformat(), '2026-10-12T13:00:00+00:00')
         self.assertEqual(parse_vendor_expiry({'expires_at': '2026-10-12T14:00', 'expiry_timezone_offset': '240'}).isoformat(), '2026-10-12T18:00:00+00:00')
 
+    def test_nearby_does_not_widen_to_state_or_whole_marketplace(self):
+        for route in ('/', '/deals'):
+            page = self.client.get(route, query_string={'area':'Unknown Neighbourhood, Lagos','nearby':'1'})
+            self.assertEqual(page.status_code, 200)
+            self.assertNotIn(b'data-offer-card', page.data)
+            self.assertNotIn(b'Showing the full marketplace', page.data)
+            found = self.client.get(route, query_string={'area':'Ikeja, Lagos','nearby':'1'})
+            self.assertIn(b'data-offer-card', found.data)
+            self.assertIn(b'distance unverified', found.data)
+
+    def test_nearby_uses_confirmed_distance_and_excludes_far_pins(self):
+        self.login_as(self.owner)
+        invalid = self.post('/business/location', {'latitude':'nan','longitude':'3.35'}, follow=True)
+        self.assertIn(b'Choose a valid latitude', invalid.data)
+        self.post('/business/location', {'latitude':'6.6','longitude':'3.35'})
+        page = self.client.get('/?nearby=1&area=Ikeja,Lagos&lat=6.6&lng=3.35')
+        self.assertIn(b'0.0 km away', page.data)
+        self.post('/business/location', {'latitude':'7.6','longitude':'3.35'})
+        page = self.client.get('/?nearby=1&area=Ikeja,Lagos&lat=6.6&lng=3.35')
+        self.assertNotIn(b'data-offer-card', page.data)
+        self.login_as(self.other)
+        self.assertEqual(self.client.get('/business/location').status_code, 403)
+
+    def test_nearby_pins_sort_by_distance_on_home_and_catalogue(self):
+        from uuid import uuid4
+        second_business, second_deal = str(uuid4()), str(uuid4())
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO businesses(id,owner_id,name,category,address,city,is_approved,wallet_balance,created_at) VALUES (?,?,?,?,?,?,1,5000,?)", (second_business,self.other,'Farther shop','Shopping','Ikeja','Lagos',timestamp()))
+            db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,is_active,is_approved,review_status,created_at) VALUES (?,?,?,?,?,?,?,100,1,1,'approved',?)", (second_deal,second_business,'Farther offer','Farther deal','Shopping','In store only',timestamp(utcnow()+timedelta(days=2)),timestamp(utcnow()+timedelta(seconds=1))))
+            db.execute('INSERT INTO business_locations VALUES (?,?,?,?)', (self.business,6.6,3.35,timestamp()))
+            db.execute('INSERT INTO business_locations VALUES (?,?,?,?)', (second_business,6.61,3.35,timestamp()))
+        for route in ('/', '/deals'):
+            data = self.client.get(route,query_string={'nearby':'1','lat':'6.6','lng':'3.35','area':'Ikeja,Lagos'}).data
+            self.assertLess(data.index(b'Local offer'),data.index(b'Farther offer'))
+            self.assertIn(b'0.0 km away',data)
+            self.assertIn(b'name="lat" value="6.6" data-nearby-param',data)
+        home = self.client.get('/').data
+        self.assertIn(b'data-use-location',home)
+        self.assertIn(b'class="hero-copy"',home)
+        # A city-only device lookup must not treat unpinned shops as near.
+        with sqlite3.connect(self.path) as db:
+            db.execute('DELETE FROM business_locations')
+        data = self.client.get('/?nearby=1&lat=6.6&lng=3.35&area=Lagos&location_level=city').data
+        self.assertNotIn(b'data-offer-card',data)
+
+    def test_password_recovery_sends_designed_mail_and_change_confirmation(self):
+        self.post('/forgot-password', {'email':'1@example.test'})
+        emails = self.app.extensions['mail_outbox']
+        self.assertEqual(emails[-1]['event'],'password_reset')
+        link = self.app.extensions['password_reset_links'][-1][1]
+        from urllib.parse import urlparse
+        changed = self.post(urlparse(link).path, {'password':'NewPasswordSecure123','password_confirmation':'NewPasswordSecure123'}, follow=True)
+        self.assertIn(b'Your password has been reset',changed.data)
+        self.assertEqual(emails[-1]['event'],'password_changed')
+        self.assertNotIn('NewPasswordSecure123',emails[-1]['html'])
+        self.assertNotIn('NewPasswordSecure123',emails[-1]['text'])
+
+    def test_email_verification_single_use_expiry_and_resend_cooldown(self):
+        import re
+        self.login_as(self.owner)
+        self.post('/account/verify-email')
+        messages = self.app.extensions['mail_outbox']
+        self.assertEqual(messages[-1]['event'], 'verification')
+        token = re.search(r'/verify-email/([^"<]+)', messages[-1]['html']).group(1)
+        before = len(messages)
+        self.post('/account/verify-email')
+        self.assertEqual(len(messages), before)
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE email_verifications SET expires_at='2000-01-01',requested_at='2000-01-01'")
+        invalid = self.client.get('/verify-email/'+token, follow_redirects=True)
+        self.assertIn(b'invalid, expired, or already used', invalid.data)
+        self.post('/account/verify-email')
+        token = re.search(r'/verify-email/([^"<]+)', messages[-1]['html']).group(1)
+        confirmed = self.client.get('/verify-email/'+token, follow_redirects=True)
+        self.assertIn(b'Your email address is verified', confirmed.data)
+        repeated = self.client.get('/verify-email/'+token, follow_redirects=True)
+        self.assertIn(b'already used', repeated.data)
+        with sqlite3.connect(self.path) as db:
+            self.assertIsNotNone(db.execute('SELECT verified_at FROM email_verifications').fetchone()[0])
+
+    def test_resend_delivery_contract_failure_and_no_key(self):
+        from locatediscount.mailer import send_email
+        from unittest.mock import patch, Mock
+        import requests
+        self.app.config.update(TESTING=False, RESEND_API_KEY='re_unit_test', MAIL_FROM='Locatediscount <hello@example.com>', PUBLIC_BASE_URL='https://example.com')
+        with self.app.test_request_context(), patch('locatediscount.mailer.requests.post') as send:
+            send.return_value = Mock(json=lambda:{'id':'email-test'})
+            self.assertTrue(send_email('password_reset','test@example.com',name='Ada',message='Choose a password',action_url='https://example.com/reset',event_id='one'))
+            args = send.call_args
+            self.assertEqual(args.args[0], 'https://api.resend.com/emails')
+            self.assertEqual(args.kwargs['headers']['Authorization'], 'Bearer re_unit_test')
+            self.assertIn('Idempotency-Key', args.kwargs['headers'])
+            self.assertIn('html', args.kwargs['json']); self.assertIn('text', args.kwargs['json'])
+            send.side_effect = requests.Timeout('timeout')
+            self.assertFalse(send_email('password_changed','test@example.com',message='Updated'))
+            self.app.config['RESEND_API_KEY']=''
+            send.reset_mock()
+            self.assertFalse(send_email('password_changed','test@example.com',message='Updated'))
+            send.assert_not_called()
+
+    def test_email_previews_are_complete_escaped_and_admin_only(self):
+        from locatediscount.mailer import render_email, EMAIL_EVENTS
+        self.assertEqual(self.client.get('/admin/email-previews').status_code, 302)
+        self.login_as(self.owner)
+        self.assertEqual(self.client.get('/admin/email-previews').status_code, 403)
+        self.login_as(self.admin)
+        self.assertEqual(self.client.get('/admin/email-previews').status_code, 200)
+        for event in EMAIL_EVENTS:
+            preview = self.client.get('/admin/email-previews/'+event)
+            self.assertEqual(preview.status_code, 200)
+            self.assertNotIn(b'gradient', preview.data)
+            self.assertIn("style-src 'unsafe-inline'", preview.headers['Content-Security-Policy'])
+        self.assertNotIn("'unsafe-inline'", self.client.get('/').headers['Content-Security-Policy'])
+        with self.app.test_request_context():
+            message = render_email('verification',name='<script>alert(1)</script>',message='Confirm email')
+            self.assertNotIn('<script>', message['html'])
+            self.assertIn('&lt;script&gt;', message['html'])
+
     def test_home_has_twelve_deals_per_page(self):
         with sqlite3.connect(self.path) as db:
             for index in range(12):

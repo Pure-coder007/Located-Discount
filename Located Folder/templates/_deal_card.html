@@ -21,6 +21,7 @@
     <h3>{% if viewable %}<a href="{{ url_for('deal_detail', deal_id=deal.id) }}">{{ deal.title }}</a>{% else %}{{ deal.title }}{% endif %}</h3>
     <p class="offer-description">{{ deal.description }}</p>
     <div class="offer-pricing"><strong>₦{{ '{:,.0f}'.format(deal.discount_price_kobo / 100) }}</strong>{% if deal.regular_price_kobo %}<del>₦{{ '{:,.0f}'.format(deal.regular_price_kobo / 100) }}</del>{% endif %}<span>per item</span></div>
+    {% if nearby_active|default(false) %}<p class="offer-distance">{% if deal.business_id|string in nearby_distances %}<i class="bi bi-geo-alt"></i> {{ nearby_distances[deal.business_id|string] }} km away{% else %}Matches your area · distance unverified{% endif %}</p>{% endif %}
     <p class="offer-address"><i class="bi bi-geo-alt"></i>{{ deal.address }}, {{ deal.city }}</p>
     <div class="offer-availability"><span class="offer-status {{ state }}">{{ days_left(deal) }} days to go{% if state == 'expired' %} · Expired{% elif state == 'expiring' %} · Ending soon{% elif state == 'suspended' %} · Suspended — wallet funding required{% elif not available %} · Unavailable{% endif %}</span>{% if available %}<span><i class="bi bi-ticket"></i>{{ voucher_remaining(deal) }} vouchers left today</span>{% elif viewable and total_voucher_remaining(deal) > 0 %}<span>Today's allocation claimed · resets at midnight Lagos time</span>{% endif %}</div>
     {% if saved and state == 'expiring' %}<p class="offer-reminder" role="status"><i class="bi bi-bell"></i>Reminder: this saved offer expires soon.</p>{% endif %}

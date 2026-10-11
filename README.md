@@ -33,7 +33,7 @@ This repository includes `render.yaml` for a production web service backed by Ne
 1. Push this project to its **own** GitHub repository. The current Git remote points to an unrelated repository, so do not use it for this deployment.
 2. In Render, select **New > Blueprint**, connect the GitHub repository, and select the branch containing `render.yaml`.
 3. In the service's **Environment** page, set `DATABASE_URL` to the complete connection string already in your local `.env`. Use the Neon connection string exactly as supplied, including its `sslmode=require` option. It is a secret: do not commit it or add it to `render.yaml`.
-4. Add the remaining production settings from `.env`: `PAYSTACK_SECRET_KEY` (or `PAYSTACK_TEST_SECRET` while testing), `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_SECRET_KEY`. Add a `MAIL_FROM` and the SMTP settings if password-reset email is enabled.
+4. Add the remaining production settings from `.env`: `PAYSTACK_SECRET_KEY` (or `PAYSTACK_TEST_SECRET` while testing), `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_SECRET_KEY`. Configure Resend using `RESEND_API_KEY`, `MAIL_FROM`, `MAIL_REPLY_TO`, and `PUBLIC_BASE_URL`; see `docs/EMAILS.md`.
 5. Create the service. The initial deploy creates the schema in Neon. From the Render Shell, run `flask --app app create-admin` once to create the first administrator.
 6. Copy the Render URL into `PAYSTACK_CALLBACK_URL` and set Paystack's webhook to `https://<your-render-domain>/payments/paystack/webhook`. After a custom domain is connected, update the callback URL to use that domain.
 
@@ -68,20 +68,11 @@ CLOUDINARY_SECRET_KEY="your-api-secret"
 
 `CLOUDINARY_API_SECRET` is also supported as an alternative name for the secret. The browser never receives either credential. Images are validated as JPEG, PNG, or WebP and limited to 5 MB before upload. The database stores Cloudinary's HTTPS delivery URL and public ID; if the related product database write fails, the newly uploaded assets are removed from Cloudinary. Existing images saved by older versions continue to load from local storage.
 
-## Password reset email
+## Transactional email with Resend
 
-Forgot-password links are single-use and expire after 30 minutes. Configure SMTP in production:
+See [docs/EMAILS.md](docs/EMAILS.md) for all 13 email types, Resend configuration, and preview links. Password recovery links remain single-use with a 30-minute expiry; email verification links expire after 24 hours. SMTP has been replaced by Resend. No external mail is sent without credentials.
 
-```bash
-export SMTP_HOST="smtp.example.com"
-export SMTP_PORT="587"
-export SMTP_USERNAME="smtp-user"
-export SMTP_PASSWORD="smtp-password"
-export SMTP_USE_TLS="1"
-export MAIL_FROM="no-reply@example.com"
-```
-
-The public response is intentionally identical whether or not an email address exists. If SMTP is not configured, the application does not expose the reset link in the browser.
+See [docs/NEARBY.md](docs/NEARBY.md) for high-accuracy location, business map pins, distance checks and address fallbacks.
 
 ## Demo catalogue
 

@@ -1,5 +1,6 @@
 """Saved offers, deal reviews, renewals and authenticated staff WebSockets."""
 import hmac
+from .mailer import send_email
 import json
 import math
 import time
@@ -153,6 +154,10 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
                  'approved' if approved else 'pending', timestamp() if approved else None, user['id'] if approved else None, deal_id))
             if approved:
                 audit('renew_deal', 'deal', deal_id, f'Renewed for {days} days')
+            owner = db.execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (deal['business_id'],)).fetchone()
+            if owner:
+                base = app.config.get('PUBLIC_BASE_URL','').rstrip('/')
+                send_email('deal_approved' if approved else 'deal_submitted', owner['email'], name=owner['name'], message=f"Your deal '{deal['title']}' was renewed and {'approved' if approved else 'submitted for review'}.", action_url=base + url_for('business_deals') if base else url_for('business_deals',_external=True), event_id=f'{deal_id}:renew:{timestamp()}')
             flash('Deal renewed and live.' if approved else 'Deal renewed and submitted for admin approval.', 'success')
             return redirect(url_for('admin_deals', status='all') if approved else url_for('business_deals'))
         return render_template('renew_deal.html', deal=deal)

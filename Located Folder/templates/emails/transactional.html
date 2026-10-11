@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ subject }}</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;color:#152b3d;font-family:Arial,Helvetica,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">{{ message[:140] }}</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6"><tr><td align="center" style="padding:40px 16px">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px">
+<tr><td style="padding:0 0 24px"><span style="font-size:24px;font-weight:800;letter-spacing:-1px;color:#173774">Locate<span style="color:#e13e42">discount</span></span><span style="display:block;margin-top:6px;font-size:11px;letter-spacing:2px;color:#687581">LOCAL DISCOVERY. REAL VALUE.</span></td></tr>
+<tr><td style="background:#fff;border:1px solid #dce2e7;border-top:4px solid #173774;border-radius:4px;padding:36px 30px">
+<p style="margin:0 0 20px;font-size:11px;font-weight:700;letter-spacing:2px;color:#537187">{{ 'ACCOUNT SECURITY' if event in ['verification','password_reset','password_changed','admin_invitation'] else 'BUSINESS UPDATE' }}</p>
+<h1 style="margin:0 0 24px;font-size:30px;line-height:1.2;letter-spacing:-.7px;font-weight:700;color:#152b3d">{{ title }}</h1>
+<p style="margin:0 0 14px;font-size:15px;line-height:1.8;color:#354854">Hello {{ name }},</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.8;color:#354854;white-space:pre-line">{{ message }}</p>
+{% if details %}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 28px;border-top:1px solid #e0e6eb">{% for label,value in details %}<tr><td style="padding:13px 0;border-bottom:1px solid #e0e6eb;font-size:13px;color:#657582">{{ label }}</td><td align="right" style="padding:13px 0;border-bottom:1px solid #e0e6eb;font-size:14px;font-weight:700;color:#152b3d">{{ value }}</td></tr>{% endfor %}</table>{% endif %}
+{% if action_url %}<table role="presentation" cellspacing="0" cellpadding="0"><tr><td bgcolor="#173774" style="border-radius:6px"><a href="{{ action_url }}" style="display:inline-block;padding:15px 24px;border:1px solid #173774;border-radius:6px;color:#ffffff;text-decoration:none;font-size:14px;line-height:1.4;font-weight:700">{{ button }} &nbsp; →</a></td></tr></table>{% endif %}
+{% if event in ['verification','password_reset','admin_invitation'] %}<p style="margin:24px 0 0;font-size:12px;line-height:1.7;color:#687581">{{ 'This verification link is valid for 24 hours.' if event == 'verification' else 'This secure link expires in 30 minutes.' }} If you didn’t request this email, you can ignore it.</p>{% if action_url %}<p style="margin:12px 0 0;font-size:11px;line-height:1.7;color:#687581;word-break:break-all">Button not working? Copy this link into your browser:<br><a href="{{ action_url }}" style="color:#173774">{{ action_url }}</a></p>{% endif %}{% endif %}
+{% if event == 'password_changed' %}<p style="margin:24px 0 0;font-size:12px;line-height:1.7;color:#924035">If this wasn’t you, request a password reset immediately and contact support.</p>{% endif %}
+<p style="margin:30px 0 0;font-size:14px;color:#354854">The Locatediscount team</p>
+</td></tr><tr><td style="padding:24px 4px;font-size:12px;line-height:1.8;color:#687581">Sent by Locatediscount · Discover deals. Save in person.<br>{% if support_email %}Need help? <a href="mailto:{{ support_email }}" style="color:#173774;text-decoration:underline">Contact our team</a>{% else %}For help, contact the Locatediscount team through the platform.{% endif %}<br>{% if site_url %}<a href="{{ site_url }}/policies/privacy" style="color:#687581">Privacy policy</a> &nbsp;·&nbsp; <a href="{{ site_url }}/policies/terms" style="color:#687581">Terms of service</a>{% endif %}</td></tr>
+</table></td></tr></table></body></html>

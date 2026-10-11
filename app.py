@@ -2,7 +2,6 @@ import hmac
 import hashlib
 import os
 import secrets
-import smtplib
 import sqlite3
 import math
 import re
@@ -12,7 +11,6 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
-from email.message import EmailMessage
 
 import click
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -26,6 +24,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from locatediscount.corrections import register_corrections, stock_remaining, daily_voucher_remaining
+from locatediscount.mailer import send_email
+from locatediscount.nearby import register_nearby, nearby_filter
+from locatediscount.email_flows import register_email_flows
 from locatediscount.discovery import location_terms as parse_location_terms, location_match_sql
 from locatediscount.billing import redeem_code
 from locatediscount.database import (
@@ -111,12 +112,10 @@ def create_app(test_config=None):
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
-        SMTP_HOST=os.environ.get("SMTP_HOST", ""),
-        SMTP_PORT=int(os.environ.get("SMTP_PORT", "587")),
-        SMTP_USERNAME=os.environ.get("SMTP_USERNAME", ""),
-        SMTP_PASSWORD=os.environ.get("SMTP_PASSWORD", ""),
-        SMTP_USE_TLS=os.environ.get("SMTP_USE_TLS", "1") == "1",
-        MAIL_FROM=os.environ.get("MAIL_FROM", "no-reply@locatediscount.local"),
+        MAIL_FROM=os.environ.get("MAIL_FROM", "Locatediscount <no-reply@locatediscount.local>"),
+        MAIL_REPLY_TO=os.environ.get("MAIL_REPLY_TO", ""),
+        RESEND_API_KEY=os.environ.get("RESEND_API_KEY", ""),
+        PUBLIC_BASE_URL=os.environ.get("PUBLIC_BASE_URL", "").rstrip('/'),
         PAYSTACK_SECRET_KEY=(os.environ.get("PAYSTACK_SECRET_KEY") or os.environ.get("PAYSTACK_TEST_SECRET", "")),
         PAYSTACK_API_BASE="https://api.paystack.co",
         PAYSTACK_CALLBACK_URL=os.environ.get("PAYSTACK_CALLBACK_URL", ""),
@@ -702,6 +701,9 @@ def create_app(test_config=None):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self)"
         response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws://{request.host} wss://{request.host} https://nominatim.openstreetmap.org; img-src 'self' data: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
+        if request.endpoint == 'email_preview':
+            # Only the sample email needs inline styles; all scripts/forms stay blocked.
+            response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         if request.path.startswith(("/consumer", "/business", "/admin", "/login", "/register", "/my-codes", "/codes/", "/saved-deals", "/chat")) or request.path.endswith("/claim"):
@@ -1048,6 +1050,7 @@ def create_app(test_config=None):
                 (timestamp(), transaction["id"]),
             )
             db.commit()
+            send_wallet_receipt(transaction)
             return True
         except DATABASE_ERRORS:
             db.rollback()
@@ -1110,62 +1113,44 @@ def create_app(test_config=None):
             "INSERT INTO business_notifications (business_id, title, message, kind, created_at) VALUES (?, ?, ?, ?, ?)",
             (business_id, title[:160], message[:2000], kind, timestamp()),
         )
+        events = {'Deal submitted for review':'deal_submitted','Deal resubmitted':'deal_submitted',
+            'Deal approved':'deal_approved','Deal changes requested':'deal_review','Deal disapproved':'deal_review',
+            'Deal archived':'deal_archived','Deal removed from catalogue':'deal_removed','Deal deleted':'deal_removed',
+            'Deal fee updated':'deal_fee','Business access updated':'business_status'}
+        owner = get_db().execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (business_id,)).fetchone()
+        if owner and title in events:
+            send_email(events[title], owner['email'], name=owner['name'], message=message,
+                action_url=public_url('business_dashboard'), event_id=f'{business_id}:{title}:{timestamp()}')
 
     def reset_token_hash(token):
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     def send_password_reset(user, reset_url):
-        """Send through configured SMTP; tests retain the URL without sending mail."""
         if app.testing:
             app.extensions.setdefault("password_reset_links", []).append((user["email"], reset_url))
-            return True
-        if not app.config["SMTP_HOST"]:
-            app.logger.warning("Password reset requested for user %s, but SMTP is not configured.", user["id"])
-            return False
-        message = EmailMessage()
-        message["Subject"] = "Reset your Locatediscount password"
-        message["From"] = app.config["MAIL_FROM"]
-        message["To"] = user["email"]
-        message.set_content(
-            f"Hello {user['name']},\n\nUse this secure link within 30 minutes to reset your password:\n{reset_url}\n\nIf you did not request this, ignore this email."
-        )
-        with smtplib.SMTP(app.config["SMTP_HOST"], app.config["SMTP_PORT"], timeout=10) as smtp:
-            if app.config["SMTP_USE_TLS"]:
-                smtp.starttls()
-            if app.config["SMTP_USERNAME"]:
-                smtp.login(app.config["SMTP_USERNAME"], app.config["SMTP_PASSWORD"])
-            smtp.send_message(message)
-        return True
+        return send_email('password_reset', user['email'], name=user['name'],
+            message='We received a request to reset your password. Choose a new password using the secure link below.',
+            action_url=reset_url, event_id=reset_url)
 
     def send_low_wallet_alert(business_id, balance):
-        """Send one alert per low-balance period without blocking redemption."""
         db = get_db()
-        business = db.execute(
-            """SELECT businesses.*, users.name AS owner_name, users.email AS owner_email
-               FROM businesses JOIN users ON users.id = businesses.owner_id WHERE businesses.id = ?""",
-            (business_id,),
-        ).fetchone()
-        if not business or balance >= business["low_balance_threshold"] or business["low_balance_alerted_at"]:
+        business = db.execute("""SELECT businesses.*, users.name owner_name, users.email owner_email
+           FROM businesses JOIN users ON users.id=businesses.owner_id WHERE businesses.id=?""", (business_id,)).fetchone()
+        if not business or balance >= business['low_balance_threshold'] or business['low_balance_alerted_at']:
             return
-        if app.config["SMTP_HOST"]:
-            try:
-                message = EmailMessage()
-                message["Subject"] = "Locatediscount wallet needs funding"
-                message["From"] = app.config["MAIL_FROM"]
-                message["To"] = business["owner_email"]
-                message.set_content(f"Hello {business['owner_name']},\n\nYour {business['name']} wallet is ₦{balance:,}, below your alert level of ₦{business['low_balance_threshold']:,}. Fund it to keep redeeming vouchers.")
-                with smtplib.SMTP(app.config["SMTP_HOST"], app.config["SMTP_PORT"], timeout=10) as smtp:
-                    if app.config["SMTP_USE_TLS"]:
-                        smtp.starttls()
-                    if app.config["SMTP_USERNAME"]:
-                        smtp.login(app.config["SMTP_USERNAME"], app.config["SMTP_PASSWORD"])
-                    smtp.send_message(message)
-            except Exception:
-                app.logger.exception("Could not send low-wallet alert for business %s", business_id)
-                return
-        else:
-            app.logger.warning("Wallet for business %s is low; SMTP is not configured.", business_id)
-        db.execute("UPDATE businesses SET low_balance_alerted_at = ? WHERE id = ?", (timestamp(), business_id))
+        accepted = send_email('low_wallet', business['owner_email'], name=business['owner_name'],
+            message=f"Your {business['name']} wallet is below your chosen alert level. Fund it to keep your offers available. Deals pause when the balance cannot cover their redemption fee.",
+            details=[('Current balance', f'₦{balance:,}'), ('Alert level', f"₦{business['low_balance_threshold']:,}")],
+            action_url=public_url('wallet'), event_id=f'{business_id}:{business["wallet_balance"]}:{timestamp()}')
+        if accepted:
+            db.execute('UPDATE businesses SET low_balance_alerted_at=? WHERE id=?', (timestamp(), business_id))
+
+    def send_wallet_receipt(transaction):
+        owner = get_db().execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (transaction['business_id'],)).fetchone()
+        if owner:
+            send_email('wallet_topup', owner['email'], name=owner['name'], message='Your payment has been verified and added to your business wallet.',
+                details=[('Amount credited', f"₦{transaction['amount']:,}"), ('Reference', transaction['reference'])],
+                action_url=public_url('wallet'), event_id=transaction['id'])
 
     def login_attempt_key(email):
         # Do not retain raw login identifiers in the rate-limit table.
@@ -1241,7 +1226,15 @@ def create_app(test_config=None):
         if query:
             sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ? OR EXISTS (SELECT 1 FROM deal_tags dt JOIN category_tags ct ON ct.id = dt.tag_id WHERE dt.deal_id = deals.id AND (LOWER(ct.name) LIKE LOWER(?) OR LOWER(ct.keywords) LIKE LOWER(?))))"
             params.extend([f"%{query}%"] * 6)
-        if area:
+        nearby = request.args.get('nearby') == '1'
+        distances, unpinned = {}, False
+        nearby_params = []
+        if nearby:
+            location_filter, nearby_params, distances, unpinned = nearby_filter(get_db(), request.args)
+            sql += location_filter
+            params.extend(nearby_params)
+            location_terms = parse_location_terms(area) if area else []
+        elif area:
             location_terms = parse_location_terms(area)
             location_filter = " AND (" + " OR ".join(location_match_sql() for _ in location_terms) + ")"
             sql += location_filter
@@ -1252,17 +1245,21 @@ def create_app(test_config=None):
             "popular": "deals.redemption_count DESC, deals.created_at DESC",
         }.get(sort, "deals.created_at DESC")
         proximity_params = []
-        if area:
+        if area and not nearby:
             proximity_cases = []
             for rank, term in enumerate(location_terms):
                 proximity_cases.append(f"WHEN {location_match_sql()} THEN {rank}")
                 proximity_params.extend([f"%{term}%", f"%{term}%"])
             order_by = "CASE " + " ".join(proximity_cases) + f" ELSE {len(location_terms)} END, " + order_by
         db = get_db()
+        if nearby and distances:
+            nearest = sorted(distances, key=distances.get)
+            order_by = 'CASE ' + ' '.join(f'WHEN businesses.id=? THEN {rank}' for rank, _ in enumerate(nearest)) + f' ELSE {len(nearest)} END, ' + order_by
+            proximity_params = nearest
         count_sql = f"SELECT COUNT(*) total FROM ({sql}) filtered_deals"
         total = db.execute(count_sql, params).fetchone()["total"]
         location_fallback = False
-        if area and total == 0:
+        if area and not nearby and total == 0:
             # Location should improve discovery, never hide the marketplace.
             sql = sql.replace(location_filter, "")
             params = params[:-2 * len(location_terms)]
@@ -1273,7 +1270,10 @@ def create_app(test_config=None):
         deals = db.execute(sql, [*params, *proximity_params, per_page, offset]).fetchall()
         category_sql = """SELECT categories.*, COUNT(DISTINCT CASE WHEN businesses.id IS NOT NULL THEN deals.id END) AS deal_count"""
         category_params = []
-        if area:
+        if nearby:
+            category_sql += f", SUM(CASE WHEN {location_filter.removeprefix(' AND ')} THEN 1 ELSE 0 END) AS nearby_deal_count"
+            category_params.extend(nearby_params)
+        elif area:
             nearby_condition = " OR ".join(location_match_sql() for _ in location_terms)
             category_sql += f", SUM(CASE WHEN {nearby_condition} THEN 1 ELSE 0 END) AS nearby_deal_count"
             for term in location_terms:
@@ -1307,7 +1307,7 @@ def create_app(test_config=None):
             selected_category=category, selected_sort=sort, consumer=current_consumer_profile(),
             page=page, total_pages=total_pages, total=total,
             category_tiles=category_tiles, category_page=category_page, category_pages=category_pages,
-            category_total=category_total, location_fallback=location_fallback,
+            category_total=category_total, location_fallback=location_fallback, nearby_active=nearby, nearby_distances=distances, nearby_unpinned=unpinned,
             deal_images=(
                 "deals/local-meal.jpg", "deals/fried-chicken.jpg", "deals/market-offer.jpg",
                 "deals/clothing-sale.jpg", "deals/sneaker-deal.jpg", "deals/boutique-style.png",
@@ -1343,7 +1343,15 @@ def create_app(test_config=None):
         if query:
             sql += " AND (deals.title LIKE ? OR deals.description LIKE ? OR businesses.name LIKE ? OR businesses.city LIKE ? OR EXISTS (SELECT 1 FROM deal_tags dt JOIN category_tags ct ON ct.id = dt.tag_id WHERE dt.deal_id = deals.id AND (LOWER(ct.name) LIKE LOWER(?) OR LOWER(ct.keywords) LIKE LOWER(?))))"
             params.extend([f"%{query}%"] * 6)
-        if area:
+        nearby = request.args.get('nearby') == '1'
+        distances, unpinned = {}, False
+        nearby_params = []
+        if nearby:
+            location_filter, nearby_params, distances, unpinned = nearby_filter(get_db(), request.args)
+            sql += location_filter
+            params.extend(nearby_params)
+            location_terms = parse_location_terms(area) if area else []
+        elif area:
             location_terms = parse_location_terms(area)
             location_filter = " AND (" + " OR ".join(location_match_sql() for _ in location_terms) + ")"
             sql += location_filter
@@ -1354,16 +1362,20 @@ def create_app(test_config=None):
             "popular": "deals.redemption_count DESC, deals.created_at DESC",
         }.get(sort, "deals.created_at DESC")
         proximity_params = []
-        if area:
+        if area and not nearby:
             proximity_cases = []
             for rank, term in enumerate(location_terms):
                 proximity_cases.append(f"WHEN {location_match_sql()} THEN {rank}")
                 proximity_params.extend([f"%{term}%", f"%{term}%"])
             order_by = "CASE " + " ".join(proximity_cases) + f" ELSE {len(location_terms)} END, " + order_by
         db = get_db()
+        if nearby and distances:
+            nearest = sorted(distances, key=distances.get)
+            order_by = 'CASE ' + ' '.join(f'WHEN businesses.id=? THEN {rank}' for rank, _ in enumerate(nearest)) + f' ELSE {len(nearest)} END, ' + order_by
+            proximity_params = nearest
         total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
         location_fallback = False
-        if area and total == 0:
+        if area and not nearby and total == 0:
             sql = sql.replace(location_filter, "")
             params = params[:-2 * len(location_terms)]
             total = db.execute(f"SELECT COUNT(*) AS total FROM ({sql}) filtered_deals", params).fetchone()["total"]
@@ -1376,7 +1388,7 @@ def create_app(test_config=None):
         return render_template(
             "deals.html", deals=deals, categories=categories, selected_category=selected_category,
             query=query, area=area, selected_sort=sort, page=page, total_pages=total_pages, total=total,
-            location_fallback=location_fallback,
+            location_fallback=location_fallback, nearby_active=nearby, nearby_distances=distances, nearby_unpinned=unpinned,
         )
 
     @app.get("/search/suggestions")
@@ -1458,6 +1470,7 @@ def create_app(test_config=None):
                 except INTEGRITY_ERRORS:
                     db.rollback(); flash("That email or phone number is already registered.", "danger")
                 else:
+                    issue_verification(db.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone())
                     session.clear(); session["user_id"] = user_id; session["csrf_token"] = secrets.token_urlsafe(32)
                     flash("Your account has been created and is pending admin approval.", "success")
                     return redirect(url_for("business_dashboard"))
@@ -1502,8 +1515,8 @@ def create_app(test_config=None):
                     (user["id"], reset_token_hash(token), timestamp(utcnow() + PASSWORD_RESET_TTL), timestamp()),
                 )
                 try:
-                    send_password_reset(user, url_for("reset_password", token=token, _external=True))
-                except (OSError, smtplib.SMTPException):
+                    send_password_reset(user, public_url("reset_password", token=token))
+                except OSError:
                     app.logger.exception("Could not send password reset email for user %s", user["id"])
             flash("If an active account matches that email, a password reset link has been sent.", "success")
             return redirect(url_for("login"))
@@ -1533,6 +1546,8 @@ def create_app(test_config=None):
                 db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(password), token_row["user_id"]))
                 db.execute("UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (timestamp(), token_row["user_id"]))
                 db.commit()
+                changed_user = db.execute('SELECT * FROM users WHERE id=?', (token_row['user_id'],)).fetchone()
+                send_email('password_changed', changed_user['email'], name=changed_user['name'], message='Your account password was reset successfully. You can sign in with your new password.', action_url=public_url('forgot_password'))
                 session.clear()
                 flash("Your password has been reset. You can now sign in.", "success")
                 return redirect(url_for("login"))
@@ -1559,6 +1574,7 @@ def create_app(test_config=None):
                 get_db().execute("UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (timestamp(), user["id"]))
                 if user["role"] == "admin":
                     record_admin_action("change_password", "user", user["id"], "Administrator changed their password")
+                send_email('password_changed', user['email'], name=user['name'], message='Your account password was changed successfully. You can sign in with your new password.', action_url=public_url('forgot_password'))
                 session.clear()
                 flash("Password changed. Please sign in again.", "success")
                 return redirect(url_for("login"))
@@ -2688,7 +2704,7 @@ def create_app(test_config=None):
                 "UPDATE deals SET is_approved = 1, is_active = 1, review_status = 'approved', review_reason = NULL, approved_at = ?, approved_by = ? WHERE id = ?",
                 (timestamp(), current_user()["id"], deal_id),
             )
-            notify_business(deal["business_id"], "Deal approved", f"Your deal '{deal['title']}' was approved and is now live.", "success")
+            notify_business(deal["business_id"], "Deal approved", f"Your deal '{deal['title']}' was approved. It can appear while active, unexpired, and covered by your wallet balance.", "success")
             record_admin_action("approve_deal", "deal", deal_id, deal["title"])
             flash("Deal approved and live.", "success")
         return redirect(url_for("admin_deals"))
@@ -3026,6 +3042,10 @@ def create_app(test_config=None):
                     )
                     save_admin_permissions(cursor.lastrowid)
                     record_admin_action("create_sub_admin", "user", cursor.lastrowid, f"Created administrator {email}")
+                    invited = db.execute('SELECT * FROM users WHERE id=?', (cursor.lastrowid,)).fetchone()
+                    token = secrets.token_urlsafe(32)
+                    db.execute('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?)', (invited['id'], reset_token_hash(token), timestamp(utcnow()+PASSWORD_RESET_TTL), timestamp()))
+                    send_email('admin_invitation', invited['email'], name=invited['name'], message='Your administrator account is ready. Set your own password to access only the tools assigned to you.', action_url=public_url('reset_password', token=token), event_id=invited['id'])
                     flash("Sub-admin account created.", "success")
                     return redirect(url_for("admin_team"))
                 except INTEGRITY_ERRORS:
@@ -3091,7 +3111,7 @@ def create_app(test_config=None):
             abort(404)
         approved, blocked = states[action]
         db.execute("UPDATE businesses SET is_approved = ?, is_blocked = ? WHERE id = ?", (approved, blocked, business_id))
-        notify_business(business_id, "Business access updated", f"Your business account '{business['name']}' was {action}d by an administrator.", "success" if action == "approve" else "warning")
+        notify_business(business_id, "Business access updated", f"Your business account '{business['name']}' was { {'approve':'approved','block':'blocked','restore':'restored'}[action] } by an administrator.", "success" if action == "approve" else "warning")
         db.execute(
             "INSERT INTO admin_audit_logs (admin_id, action, target_type, target_id, details, created_at) VALUES (?, ?, 'business', ?, ?, ?)",
             (current_user()["id"], "business_" + action, business_id, action, timestamp()),
@@ -3110,7 +3130,7 @@ def create_app(test_config=None):
             db.execute("UPDATE wallet_transactions SET status = 'approved', approved_at = ?, approved_by = ? WHERE id = ?", (timestamp(), current_user()["id"], transaction_id))
             db.execute("UPDATE businesses SET wallet_balance = wallet_balance + ?, needs_top_up = 0, low_balance_alerted_at = NULL WHERE id = ?", (transaction["amount"], transaction["business_id"]))
             db.execute("INSERT INTO admin_audit_logs (admin_id, action, target_type, target_id, details, created_at) VALUES (?, 'approve_topup', 'wallet_transaction', ?, ?, ?)", (current_user()["id"], transaction_id, transaction["reference"], timestamp()))
-            db.commit(); flash("Top-up approved and wallet credited.", "success")
+            db.commit(); send_wallet_receipt(transaction); flash("Top-up approved and wallet credited.", "success")
         except ValueError as error:
             db.rollback(); flash(str(error), "danger")
         return redirect(url_for("admin_dashboard"))
@@ -3199,6 +3219,10 @@ def create_app(test_config=None):
 
     admin_can, permission_choices, save_admin_permissions, save_deal_tags, tag_query_matches = register_corrections(
         app, get_db, current_user, roles_required, timestamp, utcnow, record_admin_action)
+
+    register_nearby(app, get_db, current_user, business_for_user, roles_required, timestamp)
+    issue_verification, public_url, email_samples = register_email_flows(app, get_db, current_user, roles_required, timestamp, utcnow, admin_can)
+    app.extensions['email_samples'] = email_samples
 
     from locatediscount.community import register_community
     register_community(app, get_db, current_user, current_consumer_profile, business_for_user,
