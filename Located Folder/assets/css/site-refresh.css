@@ -254,3 +254,13 @@ header.reference-nav .home-logo-mark{content:normal;width:110px!important;height
 .market-home .hero.hero-refresh [data-location-status]:not(:empty){background:transparent;border:0;box-shadow:none}
 .market-home .hero.hero-refresh h1{font-weight:800}
 .market-home .hero.hero-refresh .hero-copy,.market-home .hero.hero-refresh .nearby-tools>span{font-weight:700}
+
+/* Taller hero with breathing room between the heading, search and "Deals near me". */
+.market-home .hero.hero-refresh .hero-content{padding:88px 32px 80px!important}
+.market-home .hero.hero-refresh h1{margin-bottom:36px!important}
+.market-home .hero.hero-refresh .nearby-tools{margin-top:28px!important}
+@media(max-width:650px){
+ .market-home .hero.hero-refresh .hero-content{padding:56px 20px 52px!important}
+ .market-home .hero.hero-refresh h1{margin-bottom:26px!important}
+ .market-home .hero.hero-refresh .nearby-tools{margin-top:22px!important}
+}

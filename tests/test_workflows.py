@@ -23,6 +23,8 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.app = create_app({
             "TESTING": True,
             "SECRET_KEY": "test-secret",
+            # Never let a local .env DATABASE_URL point tests at a real database.
+            "DATABASE_URL": "",
             "DATABASE": self.database,
             "UPLOAD_FOLDER": str(Path(self.temp_dir.name) / "product-uploads"),
         })

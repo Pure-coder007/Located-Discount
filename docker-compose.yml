@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FLASK_ENV: production
+      SESSION_COOKIE_SECURE: "1"
+      TRUST_PROXY: "1"
+      PUBLIC_BASE_URL: https://locatediscount.ng
+      MAIL_FROM: Locatediscount <hello@locatediscount.ng>
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/http.conf:/etc/nginx/templates-ld/http.conf:ro
+      - ./deploy/nginx/https.conf:/etc/nginx/templates-ld/https.conf:ro
+      - ./deploy/nginx/select-config.sh:/docker-entrypoint.d/40-select-config.sh:ro
+      - certbot-www:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+
+  certbot:
+    image: certbot/certbot:v2.11.0
+    restart: unless-stopped
+    volumes:
+      - certbot-www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+
+volumes:
+  certbot-www:
+  letsencrypt:

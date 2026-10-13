@@ -1,10 +1,9 @@
 """A public catalogue-backed assistant. No private staff/customer data is exposed."""
 import re
 from urllib.parse import urlencode
-from flask import jsonify, request, url_for
+from flask import jsonify, redirect, request, url_for
 from .discovery import location_terms, location_match_sql
 
-WHATSAPP = 'https://wa.me/2348037338514'
 FAQS = [
     (('voucher', 'claim', 'generate', 'code', 'how it works'), 'To claim an offer, open a live deal and select Get voucher. Enter how many vouchers you need, up to the available stock, provide your name and phone on your first claim, and optionally rate the deal with stars. Your QR and text voucher appear immediately. Pay the discounted total at the shop and let that business validate your voucher once.', 'My vouchers', 'my_codes'),
     (('restriction', 'limit', 'duplicate', 'already', 'error', 'cannot', "can't", 'blocked'), 'Each browser/device can generate one voucher per deal. A business can also set a customer limit. If you have already claimed, reopen your existing voucher in My vouchers. Availability varies by offer; sold-out offers need renewed stock before more vouchers can be claimed. A voucher lasts up to seven days or until the offer expires, whichever comes first. Phone-profile recovery from a new browser needs admin help; never share your voucher code here.', 'Open my vouchers', 'my_codes'),
@@ -22,6 +21,15 @@ FAQS = [
 
 
 def register_support(app, get_db, timestamp, days_left, voucher_remaining):
+    @app.get('/contact/admin/whatsapp')
+    def admin_whatsapp():
+        # Redirect server-side so the admin number never appears in page source.
+        text = ' '.join(request.args.get('text', '').split())[:300] or 'Hello Locatediscount admin, I need help.'
+        response = redirect('https://wa.me/' + app.config['ADMIN_WHATSAPP'] + '?' + urlencode({'text': text}))
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Robots-Tag'] = 'noindex'
+        return response
+
     @app.post('/support/ask')
     def support_ask():
         question = ' '.join(request.form.get('question', '').split())
@@ -96,7 +104,7 @@ def register_support(app, get_db, timestamp, days_left, voucher_remaining):
             links.append(dict(label='Explore categories and offers', url=url_for('deals')))
             offers = []
         elif contact:
-            message = 'The admin WhatsApp number is +234 803 733 8514. Use the WhatsApp button below for personal support, account recovery or detailed enquiries. I can also look up current public business contacts: ask using the business or deal name.'
+            message = 'You can reach the admin team on WhatsApp. Use the Chat with admin button below for personal support, account recovery or detailed enquiries. I can also look up current public business contacts: ask using the business or deal name.'
             offers = []
         elif faq and not generic and not show_new and not nearby and not show_expiring:
             message = faq[1]
@@ -118,7 +126,7 @@ def register_support(app, get_db, timestamp, days_left, voucher_remaining):
             links.append(dict(label='Browse all matching offers' if matched_search else 'Browse live deals', url=url_for('deals', **({'q': ' '.join(words)} if matched_search else {'area': area} if nearby and area else {}))))
         suggestions = ['Latest deals', 'Deals near me', 'How do I generate a voucher?', 'Saved deals and reminders', 'Voucher restrictions', 'Contact admin']
         response = jsonify(message=message, offers=offers, places=places, links=links, suggestions=suggestions,
-                           whatsapp=WHATSAPP + '?' + urlencode({'text': 'Hello Locatediscount admin, I need help with: ' + question[:250]}),
+                           whatsapp=url_for('admin_whatsapp', text='Hello Locatediscount admin, I need help with: ' + question[:250]),
                            updated_at=timestamp(), total_live=total)
         response.headers['Cache-Control'] = 'no-store'
         return response

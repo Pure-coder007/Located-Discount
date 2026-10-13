@@ -22,6 +22,7 @@ import qrcode.image.svg
 from dotenv import load_dotenv
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from locatediscount.corrections import register_corrections, stock_remaining, daily_voucher_remaining
 from locatediscount.mailer import send_email
@@ -116,6 +117,9 @@ def create_app(test_config=None):
         MAIL_REPLY_TO=os.environ.get("MAIL_REPLY_TO", ""),
         RESEND_API_KEY=os.environ.get("RESEND_API_KEY", ""),
         PUBLIC_BASE_URL=os.environ.get("PUBLIC_BASE_URL", "").rstrip('/'),
+        # Admin WhatsApp number (international format, digits only). It is used
+        # only in a server-side redirect and is never rendered into pages.
+        ADMIN_WHATSAPP=re.sub(r"\D", "", os.environ.get("ADMIN_WHATSAPP", "2349059476544")),
         PAYSTACK_SECRET_KEY=(os.environ.get("PAYSTACK_SECRET_KEY") or os.environ.get("PAYSTACK_TEST_SECRET", "")),
         PAYSTACK_API_BASE="https://api.paystack.co",
         PAYSTACK_CALLBACK_URL=os.environ.get("PAYSTACK_CALLBACK_URL", ""),
@@ -129,6 +133,10 @@ def create_app(test_config=None):
     )
     if test_config:
         app.config.update(test_config)
+    # Behind the nginx reverse proxy, honour its X-Forwarded-* headers so
+    # external URLs (e.g. the Paystack callback) use https and the real host.
+    if os.environ.get("TRUST_PROXY") == "1":
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     if app.testing and (not test_config or "MEDIA_STORAGE" not in test_config):
         app.config["MEDIA_STORAGE"] = "local"
     if os.environ.get("FLASK_ENV") == "production" and app.config["SECRET_KEY"] == "development-only-change-me":

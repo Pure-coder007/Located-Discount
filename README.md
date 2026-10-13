@@ -256,7 +256,7 @@ unexpired offers and public business contacts through `/support/ask`. Every
 question queries the database; newly approved deals are immediately searchable.
 Suggestions cover latest deals, nearby discovery, vouchers, saved reminders and
 admin support. Unknown questions receive a clear fallback plus a WhatsApp handoff
-to **+234 803 733 8514** with the enquiry prefilled. This is a catalogue-backed
+to the admin WhatsApp number (set with `ADMIN_WHATSAPP`, never shown in pages) with the enquiry prefilled. This is a catalogue-backed
 platform guide with curated explanations, not a general-purpose language model;
 it needs no AI key or WhatsApp API subscription and never messages anyone itself.
 It exposes no customer identities, voucher codes, staff email addresses or wallet

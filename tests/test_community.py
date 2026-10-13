@@ -211,8 +211,11 @@ class CommunityTests(unittest.TestCase):
         self.assertIn('select Get voucher', voucher['message'])
         self.assertNotIn('Ratings belong', voucher['message'])
         contact = self.post('/support/ask', {'question': 'Contact admin'}).json
-        self.assertIn('+234 803 733 8514', contact['message'])
-        self.assertTrue(contact['whatsapp'].startswith('https://wa.me/2348037338514'))
+        self.assertNotIn('234', contact['message'])
+        self.assertTrue(contact['whatsapp'].startswith('/contact/admin/whatsapp?'))
+        redirect = self.client.get(contact['whatsapp'])
+        self.assertEqual(redirect.status_code, 302)
+        self.assertTrue(redirect.headers['Location'].startswith('https://wa.me/2349059476544?text='))
         lookup = self.post('/support/ask', {'question': 'What is the address and phone number for Local Store?'}).json
         self.assertEqual(lookup['offers'][0]['title'], 'Local offer')
         restrictions = self.post('/support/ask', {'question': 'Voucher restrictions'}).json
