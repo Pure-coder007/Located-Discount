@@ -1207,6 +1207,25 @@ def create_app(test_config=None):
             abort(404)
         return send_from_directory(BASE_DIR / "Located Folder/templates/policies", policy[1], mimetype="application/pdf")
 
+    # Progressive web app files. The service worker must be served from the site
+    # root so its scope covers every page.
+    @app.get("/manifest.webmanifest")
+    def pwa_manifest():
+        response = send_from_directory(BASE_DIR / "Located Folder/pwa", "manifest.webmanifest",
+                                       mimetype="application/manifest+json")
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
+
+    @app.get("/sw.js")
+    def pwa_service_worker():
+        response = send_from_directory(BASE_DIR / "Located Folder/pwa", "sw.js", mimetype="text/javascript")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.get("/offline")
+    def pwa_offline():
+        return send_from_directory(BASE_DIR / "Located Folder/pwa", "offline.html", mimetype="text/html")
+
     @app.route("/")
     def home():
         category = request.args.get("category", "")
