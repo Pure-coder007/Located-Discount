@@ -40,7 +40,7 @@ from locatediscount.database import (
 )
 from locatediscount.media import MediaStorageError, destroy_product_image, upload_product_image
 from locatediscount.paystack import PaystackError, initialize_transaction, verify_transaction
-from locatediscount.validators import CODE_RE, EMAIL_RE, PHONE_RE, REFERENCE_RE, valid_password
+from locatediscount.validators import CODE_RE, EMAIL_RE, NG_PHONE_RE, PHONE_RE, REFERENCE_RE, valid_password
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -120,6 +120,9 @@ def create_app(test_config=None):
         # Admin WhatsApp number (international format, digits only). It is used
         # only in a server-side redirect and is never rendered into pages.
         ADMIN_WHATSAPP=re.sub(r"\D", "", os.environ.get("ADMIN_WHATSAPP", "2349059476544")),
+        # Business sign-up bot protection: humans take longer than this to fill the form.
+        REGISTRATION_MIN_SECONDS=4,
+        REGISTRATIONS_PER_IP_PER_DAY=3,
         PAYSTACK_SECRET_KEY=(os.environ.get("PAYSTACK_SECRET_KEY") or os.environ.get("PAYSTACK_TEST_SECRET", "")),
         PAYSTACK_API_BASE="https://api.paystack.co",
         PAYSTACK_CALLBACK_URL=os.environ.get("PAYSTACK_CALLBACK_URL", ""),
@@ -1189,6 +1192,38 @@ def create_app(test_config=None):
     def clear_login_attempts(key):
         get_db().execute("DELETE FROM login_attempts WHERE attempt_key = ?", (key,))
 
+    # Bot protection for business sign-up: a signed render time, a honeypot field
+    # and a per-IP daily cap (stored in login_attempts under a hashed key).
+    def registration_form_token():
+        return URLSafeTimedSerializer(app.secret_key, salt="register-form").dumps(secrets.token_hex(4))
+
+    def registration_form_is_human():
+        if request.form.get("company_website", ""):
+            return False
+        try:
+            _, issued = URLSafeTimedSerializer(app.secret_key, salt="register-form").loads(
+                request.form.get("form_token", ""), max_age=2 * 3600, return_timestamp=True)
+        except (BadSignature, SignatureExpired):
+            return False
+        return (utcnow() - issued).total_seconds() >= app.config["REGISTRATION_MIN_SECONDS"]
+
+    def registration_ip_key():
+        return hashlib.sha256(f"register:{request.remote_addr or ''}".encode()).hexdigest()
+
+    def registrations_today(key):
+        row = get_db().execute("SELECT failures, updated_at FROM login_attempts WHERE attempt_key = ?", (key,)).fetchone()
+        if not row or parse_timestamp(row["updated_at"]) < utcnow() - timedelta(days=1):
+            return 0
+        return row["failures"]
+
+    def record_registration(key):
+        get_db().execute(
+            """INSERT INTO login_attempts (attempt_key, failures, blocked_until, updated_at)
+               VALUES (?, ?, NULL, ?)
+               ON CONFLICT(attempt_key) DO UPDATE SET failures = excluded.failures, updated_at = excluded.updated_at""",
+            (key, registrations_today(key) + 1, timestamp()),
+        )
+
     @app.get("/policies")
     def policies():
         return render_template("policies.html", policies=POLICY_DOCUMENTS)
@@ -1467,15 +1502,24 @@ def create_app(test_config=None):
         if current_user():
             return redirect(url_for("dashboard"))
         if request.method == "POST":
+            ip_key = registration_ip_key()
+            if not registration_form_is_human():
+                app.logger.warning("Rejected automated business sign-up from %s", request.remote_addr)
+                flash("We could not create your account. Please fill in the form again.", "danger")
+                return render_template("register.html", categories=category_names(), form_token=registration_form_token()), 400
+            if registrations_today(ip_key) >= app.config["REGISTRATIONS_PER_IP_PER_DAY"]:
+                flash("Too many accounts have been created from this network today. Please try again tomorrow.", "danger")
+                return render_template("register.html", categories=category_names(), form_token=registration_form_token()), 429
             email = request.form.get("email", "").strip().lower()
-            phone = request.form.get("phone", "").strip()
+            phone = re.sub(r"[\s-]", "", request.form.get("phone", ""))
             name = request.form.get("name", "").strip()
             password = request.form.get("password", "")
             role = "business"
             errors = []
             if not EMAIL_RE.match(email): errors.append("Enter a valid email address.")
-            if not PHONE_RE.match(phone): errors.append("Enter a valid phone number with 10 to 15 digits.")
+            if not NG_PHONE_RE.match(phone): errors.append("Enter a valid Nigerian mobile number, for example 08031234567 or +2348031234567.")
             if not 2 <= len(name) <= 80: errors.append("Name must be between 2 and 80 characters.")
+            elif re.search(r"\d", name): errors.append("Owner name cannot contain numbers.")
             if not valid_password(password): errors.append("Password must be at least 12 characters and include a letter and number.")
             business_name = request.form.get("business_name", "").strip()
             category = request.form.get("category", "")
@@ -1497,11 +1541,12 @@ def create_app(test_config=None):
                 except INTEGRITY_ERRORS:
                     db.rollback(); flash("That email or phone number is already registered.", "danger")
                 else:
+                    record_registration(ip_key)
                     issue_verification(db.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone())
                     session.clear(); session["user_id"] = user_id; session["csrf_token"] = secrets.token_urlsafe(32)
                     flash("Your account has been created and is pending admin approval.", "success")
                     return redirect(url_for("business_dashboard"))
-        return render_template("register.html", categories=category_names())
+        return render_template("register.html", categories=category_names(), form_token=registration_form_token())
 
     @app.route("/login", methods=("GET", "POST"))
     def login():
@@ -2658,12 +2703,21 @@ def create_app(test_config=None):
     def admin_deals():
         db = get_db()
         status = request.args.get("status", "pending")
-        if status not in {"pending", "live", "all"}:
+        if status not in {"pending", "renewals", "live", "all"}:
             status = "pending"
+        renewal_sql = "deals.renewal_requested_at IS NOT NULL AND deals.is_approved = 0 AND deals.review_status = 'pending'"
+        counts = db.execute(
+            f"""SELECT
+                  (SELECT COUNT(*) FROM deals WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved'))
+                     AND NOT ({renewal_sql})) AS pending,
+                  (SELECT COUNT(*) FROM deals WHERE {renewal_sql}) AS renewals"""
+        ).fetchone()
         where = ""
         filter_params = []
         if status == "pending":
-            where = "WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved'))"
+            where = f"WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved')) AND NOT ({renewal_sql})"
+        elif status == "renewals":
+            where = f"WHERE {renewal_sql}"
         elif status == "live":
             where = "WHERE deals.is_approved = 1 AND deals.is_active = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id) AND deals.expires_at > ?"
             filter_params = [timestamp()]
@@ -2678,7 +2732,7 @@ def create_app(test_config=None):
                 {where} ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
             (*filter_params, per_page, offset),
         ).fetchall()
-        return render_template("admin_deals.html", deals=deals, status=status, page=page,
+        return render_template("admin_deals.html", deals=deals, status=status, page=page, counts=counts,
                                total_pages=total_pages, total=total, fee=redemption_fee(db))
 
     @app.get("/admin/deals/<string:deal_id>")
@@ -2718,6 +2772,8 @@ def create_app(test_config=None):
         ).fetchone()
         if not deal:
             abort(404)
+        is_renewal = bool(deal["renewal_requested_at"])
+        back = url_for("admin_deals", status="renewals" if is_renewal else "pending")
         if deal["is_approved"]:
             flash("This deal has already been approved.", "info")
         elif not deal["business_approved"] or deal["is_blocked"]:
@@ -2726,15 +2782,26 @@ def create_app(test_config=None):
             required_fee = deal["redemption_fee"] if deal["redemption_fee"] is not None else redemption_fee(db)
             if deal["wallet_balance"] < required_fee:
                 flash(f"This business needs at least ₦{required_fee:,} in its wallet before the deal can go live.", "danger")
-                return redirect(url_for("admin_deals"))
+                return redirect(back)
+            expires_at = deal["expires_at"]
+            if is_renewal:
+                # The business chose the renewal length; it counts from approval, capped at seven days.
+                days = min(max(deal["renewal_days"] or MAX_VENDOR_DEAL_DAYS, 1), MAX_VENDOR_DEAL_DAYS)
+                expires_at = timestamp(utcnow() + timedelta(days=days))
             db.execute(
-                "UPDATE deals SET is_approved = 1, is_active = 1, review_status = 'approved', review_reason = NULL, approved_at = ?, approved_by = ? WHERE id = ?",
-                (timestamp(), current_user()["id"], deal_id),
+                """UPDATE deals SET is_approved = 1, is_active = 1, review_status = 'approved', review_reason = NULL,
+                   approved_at = ?, approved_by = ?, expires_at = ?, renewal_requested_at = NULL, renewal_days = NULL WHERE id = ?""",
+                (timestamp(), current_user()["id"], expires_at, deal_id),
             )
-            notify_business(deal["business_id"], "Deal approved", f"Your deal '{deal['title']}' was approved. It can appear while active, unexpired, and covered by your wallet balance.", "success")
-            record_admin_action("approve_deal", "deal", deal_id, deal["title"])
-            flash("Deal approved and live.", "success")
-        return redirect(url_for("admin_deals"))
+            if is_renewal:
+                notify_business(deal["business_id"], "Deal renewal approved", f"Your renewal of '{deal['title']}' was approved and runs until {expires_at[:10]}.", "success")
+                record_admin_action("approve_renewal", "deal", deal_id, deal["title"])
+                flash(f"Renewal approved. The deal is live until {expires_at[:10]}.", "success")
+            else:
+                notify_business(deal["business_id"], "Deal approved", f"Your deal '{deal['title']}' was approved. It can appear while active, unexpired, and covered by your wallet balance.", "success")
+                record_admin_action("approve_deal", "deal", deal_id, deal["title"])
+                flash("Deal approved and live.", "success")
+        return redirect(back)
 
     @app.post("/admin/deals/<string:deal_id>/review")
     @roles_required("admin")
@@ -2748,7 +2815,7 @@ def create_app(test_config=None):
         deal = db.execute("SELECT id, business_id, title FROM deals WHERE id = ?", (deal_id,)).fetchone()
         if not deal:
             abort(404)
-        db.execute("UPDATE deals SET is_active = 0, is_approved = 0, review_status = ?, review_reason = ?, approved_at = NULL, approved_by = NULL WHERE id = ?", (action, reason, deal_id))
+        db.execute("UPDATE deals SET is_active = 0, is_approved = 0, review_status = ?, review_reason = ?, approved_at = NULL, approved_by = NULL, renewal_requested_at = NULL, renewal_days = NULL WHERE id = ?", (action, reason, deal_id))
         notify_business(deal["business_id"], "Deal changes requested" if action == "changes_requested" else "Deal disapproved", f"Your deal '{deal['title']}' was {'sent back for correction' if action == 'changes_requested' else 'disapproved'} by an administrator. Reason: {reason}", "warning" if action == "changes_requested" else "danger")
         record_admin_action(action, "deal", deal_id, reason)
         flash("Deal sent back to the vendor with your correction reason." if action == "changes_requested" else "Deal disapproved and unpublished.", "success")

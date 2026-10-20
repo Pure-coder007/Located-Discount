@@ -1,5 +1,6 @@
 """End-to-end tests for the public workflows and immutable billing path."""
 
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -27,6 +28,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
             "DATABASE_URL": "",
             "DATABASE": self.database,
             "UPLOAD_FOLDER": str(Path(self.temp_dir.name) / "product-uploads"),
+            "REGISTRATION_MIN_SECONDS": 0,
         })
         runner = self.app.test_cli_runner()
         result = runner.invoke(args=["init-db"])
@@ -47,7 +49,13 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             return session["csrf_token"]
 
+    def register_form_token(self):
+        page = self.client.get("/register").get_data(as_text=True)
+        return re.search(r'name="form_token" value="([^"]+)"', page).group(1)
+
     def post(self, path, data, **kwargs):
+        if path == "/register" and "form_token" not in data:
+            data = {"form_token": self.register_form_token(), **data}
         return self.client.post(path, data={"csrf_token": self.csrf(), **data}, **kwargs)
 
     def logout(self):
@@ -568,6 +576,44 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.assertIn(b"password has been reset", response.data)
         response = self.login("admin@example.com", "ACompletelyNewPassword123")
         self.assertIn(b"Platform performance snapshot", response.data)
+
+    def business_count(self):
+        connection = sqlite3.connect(self.database)
+        total = connection.execute("SELECT COUNT(*) FROM businesses").fetchone()[0]
+        connection.close()
+        return total
+
+    def signup(self, index, **overrides):
+        data = {
+            "name": "Ada Owner", "email": f"owner{index}@example.com", "phone": f"+23480123450{index:02d}",
+            "password": "OwnerPassword123", "business_name": f"Shop {index}", "category": "Shopping",
+            "address": "10 Allen Avenue", "city": "Lagos", **overrides,
+        }
+        response = self.post("/register", data)
+        self.logout()
+        return response
+
+    def test_registration_rejects_bots(self):
+        self.assertEqual(self.signup(1, company_website="http://spam.example").status_code, 400)
+        self.assertEqual(self.signup(2, form_token="forged").status_code, 400)
+        self.app.config["REGISTRATION_MIN_SECONDS"] = 60
+        self.assertEqual(self.signup(3).status_code, 400)
+        self.app.config["REGISTRATION_MIN_SECONDS"] = 0
+        self.assertEqual(self.business_count(), 0)
+
+    def test_registration_requires_nigerian_phone_and_real_name(self):
+        self.assertIn(b"valid Nigerian mobile number", self.signup(1, phone="+16111956203").data)
+        self.assertIn(b"valid Nigerian mobile number", self.signup(2, phone="6130973681").data)
+        self.assertIn(b"cannot contain numbers", self.signup(3, name="EQyhboZ6c0").data)
+        self.assertEqual(self.business_count(), 0)
+        self.assertEqual(self.signup(4, phone="0803 123 4567").status_code, 302)
+        self.assertEqual(self.business_count(), 1)
+
+    def test_registration_is_limited_per_network_per_day(self):
+        for index in range(1, 4):
+            self.assertEqual(self.signup(index).status_code, 302)
+        self.assertEqual(self.signup(4).status_code, 429)
+        self.assertEqual(self.business_count(), 3)
 
 
 if __name__ == "__main__":

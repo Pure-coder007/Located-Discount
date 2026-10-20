@@ -12,6 +12,9 @@ from flask_sock import Sock
 from simple_websocket import ConnectionClosed
 from werkzeug.exceptions import HTTPException
 
+# Every deal and renewal, whether set by a business or an admin, runs at most seven days.
+MAX_DEAL_DAYS = 7
+
 
 def register_community(app, get_db, current_user, consumer_profile, business_for_user,
                        roles_required, timestamp, utcnow, parse_timestamp,
@@ -30,6 +33,16 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
             deal_id {key_type} NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
             user_id {key_type} NOT NULL REFERENCES users(id), stars INTEGER NOT NULL CHECK(stars BETWEEN 1 AND 5),
             updated_at TEXT NOT NULL, PRIMARY KEY(deal_id, user_id))''')
+        # A business renewal waiting for admin approval, and the days the business chose.
+        if app.config['DATABASE_URL']:
+            db.execute('ALTER TABLE deals ADD COLUMN IF NOT EXISTS renewal_requested_at TEXT')
+            db.execute('ALTER TABLE deals ADD COLUMN IF NOT EXISTS renewal_days INTEGER')
+        else:
+            deal_columns = {row['name'] for row in db.execute('PRAGMA table_info(deals)').fetchall()}
+            for name, definition in (('renewal_requested_at', 'TEXT'), ('renewal_days', 'INTEGER')):
+                if name not in deal_columns:
+                    db.execute(f'ALTER TABLE deals ADD COLUMN {name} {definition}')
+        db.commit()
 
     def days_left(deal):
         return max(0, math.ceil((parse_timestamp(deal['expires_at']) - utcnow()).total_seconds() / 86400))
@@ -126,32 +139,38 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
         business = db.execute('SELECT * FROM businesses WHERE id = ?', (deal['business_id'],)).fetchone()
         if user['role'] == 'business' and str(business['owner_id']) != str(user['id']):
             abort(403)
+        if user['role'] == 'admin' and deal['renewal_requested_at'] and not deal['is_approved']:
+            # The business already chose the renewal length; the admin only approves it.
+            flash('This business has already requested a renewal. Review and approve it here.', 'info')
+            return redirect(url_for('admin_deal_detail', deal_id=deal_id))
         if request.method == 'POST':
             try:
-                days = int(request.form.get('days', '7' if user['role'] == 'business' else '30'))
+                days = int(request.form.get('days', str(MAX_DEAL_DAYS)))
                 limit = int(request.form.get('redemption_limit', deal['redemption_limit']))
                 if not max(deal['redemption_count'], db.execute('SELECT COALESCE(SUM(quantity),0) total FROM codes WHERE deal_id=?', (deal_id,)).fetchone()['total']) < limit <= 100000:
                     raise ValueError()
-                max_days = 7 if user['role'] == 'business' else 365
-                if not 1 <= days <= max_days:
+                if not 1 <= days <= MAX_DEAL_DAYS:
                     raise ValueError()
             except ValueError:
-                flash(f'Choose 1 to {7 if user["role"] == "business" else 365} days and a redemption limit above the number already redeemed (maximum 100,000).', 'danger')
-                return render_template('renew_deal.html', deal=deal), 400
+                flash(f'Choose 1 to {MAX_DEAL_DAYS} days and a redemption limit above the number already redeemed (maximum 100,000).', 'danger')
+                return render_template('renew_deal.html', deal=deal, max_days=MAX_DEAL_DAYS), 400
             if not business['is_approved'] or business['is_blocked']:
                 flash('The business must be approved and unblocked before renewal.', 'danger')
-                return render_template('renew_deal.html', deal=deal), 400
+                return render_template('renew_deal.html', deal=deal, max_days=MAX_DEAL_DAYS), 400
             approved = user['role'] == 'admin'
             fee = deal['redemption_fee'] if deal['redemption_fee'] is not None else redemption_fee(db, business)
             if approved and business['wallet_balance'] < fee:
                 flash('Fund the business wallet before publishing this renewal.', 'danger')
-                return render_template('renew_deal.html', deal=deal), 400
-            expiry = (utcnow() if user['role'] == 'business' else max(utcnow(), parse_timestamp(deal['expires_at']))) + timedelta(days=days)
+                return render_template('renew_deal.html', deal=deal, max_days=MAX_DEAL_DAYS), 400
+            # Deals never run longer than seven days from today.
+            expiry = utcnow() + timedelta(days=days)
             # Preserve codes, prices and customer limits; let the owner set renewed capacity.
             db.execute('''UPDATE deals SET expires_at = ?, redemption_limit = ?, is_active = ?, is_approved = ?,
-                review_status = ?, review_reason = NULL, approved_at = ?, approved_by = ? WHERE id = ?''',
+                review_status = ?, review_reason = NULL, approved_at = ?, approved_by = ?,
+                renewal_requested_at = ?, renewal_days = ? WHERE id = ?''',
                 (timestamp(expiry), limit, int(approved), int(approved),
-                 'approved' if approved else 'pending', timestamp() if approved else None, user['id'] if approved else None, deal_id))
+                 'approved' if approved else 'pending', timestamp() if approved else None, user['id'] if approved else None,
+                 None if approved else timestamp(), None if approved else days, deal_id))
             if approved:
                 audit('renew_deal', 'deal', deal_id, f'Renewed for {days} days')
             owner = db.execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (deal['business_id'],)).fetchone()
@@ -159,8 +178,8 @@ def register_community(app, get_db, current_user, consumer_profile, business_for
                 base = app.config.get('PUBLIC_BASE_URL','').rstrip('/')
                 send_email('deal_approved' if approved else 'deal_submitted', owner['email'], name=owner['name'], message=f"Your deal '{deal['title']}' was renewed and {'approved' if approved else 'submitted for review'}.", action_url=base + url_for('business_deals') if base else url_for('business_deals',_external=True), event_id=f'{deal_id}:renew:{timestamp()}')
             flash('Deal renewed and live.' if approved else 'Deal renewed and submitted for admin approval.', 'success')
-            return redirect(url_for('admin_deals', status='all') if approved else url_for('business_deals'))
-        return render_template('renew_deal.html', deal=deal)
+            return redirect(url_for('admin_deals', status='live') if approved else url_for('business_deals'))
+        return render_template('renew_deal.html', deal=deal, max_days=MAX_DEAL_DAYS)
 
     def chat_business(business_id):
         user = current_user()

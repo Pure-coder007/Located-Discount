@@ -85,10 +85,27 @@ class CommunityTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT is_active,is_approved FROM deals').fetchone(), (0, 0))
         self.login_as(self.admin)
-        response = self.post(f'/deals/{self.deal}/renew', {'days': 1}, follow=True)
+        # The renewal waits in its own tab, not among new deals, and the admin never re-enters days.
+        self.assertNotIn(b'Local offer', self.client.get('/admin/deals?status=pending').data)
+        renewals = self.client.get('/admin/deals?status=renewals').data
+        self.assertIn(b'Local offer', renewals)
+        self.assertIn(b'Approve renewal (7 days)', renewals)
+        self.assertNotIn(f'/deals/{self.deal}/renew'.encode(), renewals)
+        self.assertEqual(self.client.get(f'/deals/{self.deal}/renew').status_code, 302)
+        response = self.post(f'/admin/deals/{self.deal}/approve', follow=True)
+        self.assertIn(b'Renewal approved', response.data)
+        with sqlite3.connect(self.path) as db:
+            active, approved, expiry, requested = db.execute('SELECT is_active,is_approved,expires_at,renewal_requested_at FROM deals').fetchone()
+            self.assertEqual((active, approved, requested), (1, 1, None))
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM admin_audit_logs WHERE action='approve_renewal'").fetchone()[0], 1)
+        from datetime import datetime
+        remaining = datetime.fromisoformat(expiry) - utcnow()
+        self.assertTrue(timedelta(days=6, hours=23) < remaining <= timedelta(days=7))
+        # An admin renewing a live deal directly is also capped at seven days.
+        self.assertEqual(self.post(f'/deals/{self.deal}/renew', {'days': 8}).status_code, 400)
+        response = self.post(f'/deals/{self.deal}/renew', {'days': 3}, follow=True)
         self.assertIn(b'Deal renewed and live', response.data)
         with sqlite3.connect(self.path) as db:
-            self.assertEqual(db.execute('SELECT is_active,is_approved FROM deals').fetchone(), (1, 1))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM admin_audit_logs WHERE action='renew_deal'").fetchone()[0], 1)
 
     def test_expired_deals_are_red_and_absent_from_live_admin_view(self):
