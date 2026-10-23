@@ -668,6 +668,71 @@ class CommunityTests(unittest.TestCase):
         self.assertIn('<small>Today</small><strong>₦1,000</strong><em>1 payment</em>', page)
         self.assertIn('<strong>₦500</strong><em>1 started, not paid or verified</em>', page)
 
+    def seed_funding(self):
+        """Top-ups across periods, methods and statuses for the funding report."""
+        other = str(uuid4())
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO businesses(id,owner_id,name,category,address,city,is_approved,wallet_balance,created_at) VALUES (?,?,?,?,?,?,1,0,?)",
+                       (other, self.other, '=Bakery Corner', 'Shopping', '1 Market Street', 'Lagos', timestamp()))
+            rows = ((self.business, 1000, 'approved', timestamp(), 'PSTK-TODAY1'),
+                    (self.business, 3000, 'approved', timestamp(utcnow() - timedelta(days=40)), 'PSTK-OLD001'),
+                    (other, 2500, 'approved', timestamp(), 'MAN-CASH01'),
+                    (self.business, 500, 'pending', None, 'PSTK-PEND01'),
+                    (self.business, 700, 'rejected', None, 'PSTK-FAIL01'))
+            for business, amount, status, approved, reference in rows:
+                db.execute("INSERT INTO wallet_transactions(business_id,amount,kind,status,reference,note,created_at,approved_at) VALUES (?,?,'topup',?,?,'t',?,?)",
+                           (business, amount, status, reference, approved or timestamp(), approved))
+            # Local Store: 5000 balance, 4000 of confirmed records -> flagged; the other wallet is 0 vs 2500.
+        return other
+
+    def test_funding_report_totals_filters_and_balance_check(self):
+        other = self.seed_funding()
+        self.login_as(self.admin)
+        page = self.client.get('/admin/topups/report?range=all').data.decode()
+        self.assertIn('<small>All time</small><strong>₦6,500</strong><em>3 payments</em>', page)
+        self.assertIn('<small>Today</small><strong>₦3,500</strong><em>2 payments</em>', page)
+        self.assertIn('<small>Total</small><strong>₦6,500</strong><em>3 payments</em>', page)
+        self.assertIn('<small>Paystack</small><strong>₦4,000</strong>', page)
+        self.assertIn('<small>Manual</small><strong>₦2,500</strong>', page)
+        self.assertNotIn('PSTK-PEND01', page)
+        self.assertIn('2 to review', page)
+        self.assertIn('+₦1,000', page)
+        self.assertIn('−₦2,500', page)
+        pending = self.client.get('/admin/topups/report?status=pending&range=all').data.decode()
+        self.assertIn('PSTK-PEND01', pending)
+        self.assertNotIn('PSTK-TODAY1', pending)
+        manual = self.client.get('/admin/topups/report?method=manual&range=all').data.decode()
+        self.assertIn('MAN-CASH01', manual)
+        self.assertNotIn('PSTK-TODAY1', manual)
+        business = self.client.get(f'/admin/topups/report?business={other}&range=all').data.decode()
+        self.assertIn('<small>Total</small><strong>₦2,500</strong>', business)
+        self.assertIn('PSTK-OLD001', self.client.get('/admin/topups/report?q=old001&range=all').data.decode())
+        old_day = (utcnow() - timedelta(days=40)).date()
+        custom = self.client.get(f'/admin/topups/report?start={old_day + timedelta(days=1)}&end={old_day - timedelta(days=1)}').data.decode()
+        self.assertIn('<small>Total</small><strong>₦3,000</strong><em>1 payment</em>', custom)
+        self.assertEqual(self.client.get('/admin/topups/report?status=nonsense&range=bad&start=notadate').status_code, 200)
+
+    def test_funding_report_csv_and_access(self):
+        self.seed_funding()
+        self.login_as(self.admin)
+        response = self.client.get('/admin/topups/report.csv?range=all')
+        self.assertEqual(response.mimetype, 'text/csv')
+        self.assertIn('attachment; filename="wallet-funding-all.csv"', response.headers['Content-Disposition'])
+        body = response.data.decode('utf-8-sig')
+        self.assertIn('Date (Lagos),Business,Reference,Method,Amount (NGN),Status,Confirmed by,Note', body)
+        self.assertIn("'=Bakery Corner,MAN-CASH01,Manual,2500,Confirmed", body)
+        self.assertEqual(body.count('PSTK-'), 2)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO users(id,email,phone,password_hash,role,name,created_at,created_by_admin) VALUES ('staff','staff@example.test','+2348055555555','unused','admin','Staff',?,?)", (timestamp(), self.admin))
+        self.login_as('staff')
+        self.assertEqual(self.client.get('/admin/topups/report').status_code, 403)
+        self.assertEqual(self.client.get('/admin/topups/report.csv').status_code, 403)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO admin_permissions(user_id, permission) VALUES ('staff', 'finance')")
+        self.assertEqual(self.client.get('/admin/topups/report').status_code, 200)
+        self.login_as(self.owner)
+        self.assertEqual(self.client.get('/admin/topups/report').status_code, 403)
+
     def test_deal_text_lines_render_as_bullets(self):
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE deals SET description=?, terms=? WHERE id=?", ('\u2022 Juicy <b>burger</b>\n- Free fries\n\n', 'Weekdays only', self.deal))

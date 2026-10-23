@@ -1,0 +1,85 @@
+{% extends 'portal_base.html' %}
+{% block title %}Funding report | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Finance{% endblock %}
+{% block portal_title %}Wallet funding report{% endblock %}
+{% block portal_subtitle %}Every naira businesses have paid into their wallets, by period, method and business. Times are Lagos time.{% endblock %}
+{% block portal_actions %}<a href="{{ url_for('admin_funding_report_csv', **export_args) }}" class="inline-flex items-center gap-2 rounded-xl bg-pine px-4 py-3 text-xs font-extrabold text-white"><i class="bi bi-download"></i> Download CSV</a>{% endblock %}
+{% block portal_content %}
+{% set naira = '₦{:,.0f}' %}
+<section class="funding-periods" aria-label="Confirmed funding by period">
+  {% for key, label in (('today', 'Today'), ('yesterday', 'Yesterday'), ('7d', 'Last 7 days'), ('month', 'This month'), ('last_month', 'Last month'), ('all', 'All time')) %}
+  <a class="funding-period {% if filters.range == key and filters.status == 'approved' and filters.method == 'all' and not filters.business and not filters.q %}is-active{% endif %}" href="{{ url_for('admin_funding_report', range=key) }}">
+    <small>{{ label }}</small><strong>{{ naira.format(totals[key ~ '_total']) }}</strong><em>{{ totals[key ~ '_count'] }} payment{{ '' if totals[key ~ '_count'] == 1 else 's' }}</em>
+  </a>
+  {% endfor %}
+</section>
+<section class="funding-facts" aria-label="Funding health">
+  <article><i class="bi bi-people"></i><div><strong>{{ totals.paying_businesses }}</strong><small>{{ "business has" if totals.paying_businesses == 1 else "businesses have" }} funded a wallet</small></div></article>
+  <article><i class="bi bi-calculator"></i><div><strong>{{ naira.format(totals.average) }}</strong><small>average confirmed top-up</small></div></article>
+  <a href="{{ url_for('admin_funding_report', status='pending', range='all') }}"><i class="bi bi-hourglass-split"></i><div><strong>{{ naira.format(totals.pending_total) }}</strong><small>{{ totals.pending_count }} not yet confirmed{% if totals.stale_count %} · {{ totals.stale_count }} older than an hour (likely abandoned){% endif %}</small></div></a>
+  <a href="#balance-check" class="{% if checks %}is-alert{% else %}is-ok{% endif %}"><i class="bi {% if checks %}bi-exclamation-triangle{% else %}bi-shield-check{% endif %}"></i><div><strong>{% if checks %}{{ checks|length }} to review{% else %}All balanced{% endif %}</strong><small>wallet balance check</small></div></a>
+</section>
+
+<form class="portal-panel funding-filters" method="get" action="{{ url_for('admin_funding_report') }}">
+  <label><span>Period</span><select name="range">{% for key, label in ranges.items() if key != 'custom' %}<option value="{{ key }}" {% if filters.range == key %}selected{% endif %}>{{ label }}</option>{% endfor %}{% if filters.range == 'custom' %}<option value="custom" selected>Custom dates</option>{% endif %}</select></label>
+  <label><span>From</span><input type="date" name="start" value="{{ filters.start_input }}" max="{{ today.isoformat() }}"></label>
+  <label><span>To</span><input type="date" name="end" value="{{ filters.end_input }}" max="{{ today.isoformat() }}"></label>
+  <label><span>Status</span><select name="status">{% for key, label in statuses.items() %}<option value="{{ key }}" {% if filters.status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label><span>Method</span><select name="method">{% for key, label in methods.items() %}<option value="{{ key }}" {% if filters.method == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label><span>Business</span><select name="business"><option value="">All businesses</option>{% for business in businesses %}<option value="{{ business.id }}" {% if filters.business == business.id|string %}selected{% endif %}>{{ business.name }}</option>{% endfor %}</select></label>
+  <label class="is-wide"><span>Search</span><input type="search" name="q" value="{{ filters.q }}" placeholder="Business name or payment reference"></label>
+  <div class="funding-filter-actions"><button class="app-button" type="submit"><i class="bi bi-funnel"></i> Apply</button><a href="{{ url_for('admin_funding_report') }}">Reset</a></div>
+  <p class="funding-filter-note">Dates choose a custom range and override the period. Leave them empty to use the period.</p>
+</form>
+
+<section class="portal-panel mt-5 overflow-hidden">
+  <div class="portal-panel-header"><div><p class="portal-kicker">{{ ranges[filters.range] }} · {{ statuses[filters.status] }}{% if filters.method != 'all' %} · {{ methods[filters.method] }}{% endif %}</p><h2 class="portal-heading">Selected funding</h2></div></div>
+  <div class="funding-summary">
+    <article><small>Total</small><strong>{{ naira.format(summary.total) }}</strong><em>{{ summary.count }} payment{{ '' if summary.count == 1 else 's' }}</em></article>
+    <article><small>Paystack</small><strong>{{ naira.format(summary.paystack) }}</strong><em>Paid online</em></article>
+    <article><small>Manual</small><strong>{{ naira.format(summary.manual) }}</strong><em>Approved by an admin</em></article>
+    <article><small>Largest</small><strong>{{ naira.format(summary.largest) }}</strong><em>{{ summary.businesses }} business{{ '' if summary.businesses == 1 else 'es' }}</em></article>
+  </div>
+  {% if chart %}
+  <div class="funding-chart-wrap">
+    <p class="portal-kicker">Confirmed per day{% if chart|length >= 92 %} · last 92 days of the range{% endif %}</p>
+    <div class="funding-chart" role="img" aria-label="Confirmed funding per day">{% for point in chart %}<div class="funding-chart-column" title="{{ point.day.strftime('%d %b %Y') }}: {{ naira.format(point.total) }}"><div class="funding-chart-track"><span class="funding-level-{{ point.level }}"></span></div>{% if chart|length <= 31 or loop.first or loop.last or point.day.day == 1 %}<small class="{% if loop.index0 % 7 and not loop.last %}is-minor{% endif %}">{{ point.day.strftime('%d/%m') }}</small>{% endif %}</div>{% endfor %}</div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="mt-5 grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
+  <section class="portal-panel overflow-hidden">
+    <div class="portal-panel-header"><div><p class="portal-kicker">In this selection</p><h2 class="portal-heading">Top funding businesses</h2></div></div>
+    <div class="divide-y divide-slate-100">{% for business in top_businesses %}<a class="funding-row" href="{{ url_for('admin_funding_report', **dict(export_args, business=business.id|string)) }}"><div><p class="text-sm font-extrabold text-ink">{{ loop.index }}. {{ business.name }}</p><p class="mt-1 text-[10px] text-slate-400">{{ business.count }} payment{{ '' if business.count == 1 else 's' }}{% set last = to_lagos(business.last_at) %}{% if last %} · last {{ last.strftime('%d %b, %H:%M') }}{% endif %}</p></div><strong>{{ naira.format(business.total) }}</strong></a>{% else %}<p class="px-6 py-10 text-center text-sm text-slate-500">No funding matches these filters.</p>{% endfor %}</div>
+  </section>
+
+  <section class="portal-panel overflow-hidden">
+    <div class="portal-panel-header"><div><p class="portal-kicker">{{ summary.count }} matching</p><h2 class="portal-heading">Payments</h2></div></div>
+    <div class="funding-table-wrap"><table class="funding-table is-payments">
+      <thead><tr><th>Date</th><th>Business</th><th>Method</th><th>Status</th><th class="is-amount">Amount</th></tr></thead>
+      <tbody>{% for row in rows %}{% set moment = to_lagos(row.event_at) %}<tr>
+        <td>{{ moment.strftime('%d %b %Y') if moment else '' }}<small>{{ moment.strftime('%H:%M') if moment else '' }}</small></td>
+        <td><strong>{{ row.business_name }}</strong><small class="font-mono">{{ row.reference }}</small></td>
+        <td>{{ row.method }}{% if row.approver_name %}<small>by {{ row.approver_name }}</small>{% endif %}</td>
+        <td><span class="funding-status is-{{ row.status }}">{{ statuses.get(row.status, row.status) }}</span></td>
+        <td class="is-amount">{{ naira.format(row.amount) }}</td>
+      </tr>{% else %}<tr><td colspan="5" class="funding-empty">No payments match these filters.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% from '_pagination.html' import pager with context %}{{ pager(page, pages, summary.count, key='page', label='payments') }}
+  </section>
+</section>
+
+<section id="balance-check" class="portal-panel mt-5 overflow-hidden">
+  <div class="portal-panel-header"><div><p class="portal-kicker">Reconciliation</p><h2 class="portal-heading">Wallet balance check</h2></div></div>
+  <p class="funding-check-intro">Each wallet should equal its confirmed top-ups, minus redemption fees, plus or minus adjustments. A difference means a balance changed without a matching record. Correct it with a wallet adjustment on the dashboard so the fix is recorded.</p>
+  {% if checks %}
+  <div class="funding-table-wrap"><table class="funding-table is-checks">
+    <thead><tr><th>Business</th><th class="is-amount">Wallet balance</th><th class="is-amount">Expected from records</th><th class="is-amount">Difference</th></tr></thead>
+    <tbody>{% for check in checks %}<tr><td><strong>{{ check.name }}</strong></td><td class="is-amount" data-label="Wallet balance">{{ naira.format(check.balance) }}</td><td class="is-amount" data-label="Expected">{{ naira.format(check.expected) }}</td><td data-label="Difference" class="is-amount {% if check.difference > 0 %}is-over{% else %}is-under{% endif %}">{{ '+' if check.difference > 0 else '−' }}{{ naira.format(check.difference|abs) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p class="funding-check-ok"><i class="bi bi-shield-check"></i> Every wallet matches its recorded payments, fees and adjustments.</p>
+  {% endif %}
+</section>
+{% endblock %}

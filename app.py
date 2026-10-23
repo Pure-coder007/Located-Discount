@@ -30,6 +30,7 @@ from locatediscount.nearby import register_nearby, nearby_filter
 from locatediscount.email_flows import register_email_flows
 from locatediscount.discovery import location_terms as parse_location_terms, location_match_sql
 from locatediscount.billing import redeem_code
+from locatediscount.funding import register_funding
 from locatediscount.database import (
     DATABASE_ERRORS,
     INTEGRITY_ERRORS,
@@ -2617,21 +2618,7 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         revenue = db.execute("SELECT COALESCE(SUM(fee_charged), 0) total FROM ledger_entries").fetchone()["total"]
         redemption_count = db.execute("SELECT COUNT(*) total FROM ledger_entries").fetchone()["total"]
-        # Day and month boundaries follow Lagos time (UTC+1); stored times are UTC.
-        lagos = timezone(timedelta(hours=1))
-        today = datetime.now(lagos).replace(hour=0, minute=0, second=0, microsecond=0)
-        day_start, month_start = timestamp(today.astimezone(timezone.utc)), timestamp(today.replace(day=1).astimezone(timezone.utc))
-        funding = db.execute(
-            """SELECT COALESCE(SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END), 0) AS total,
-                      COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) AS count,
-                      COALESCE(SUM(CASE WHEN status = 'approved' AND approved_at >= ? THEN amount ELSE 0 END), 0) AS today,
-                      COALESCE(SUM(CASE WHEN status = 'approved' AND approved_at >= ? THEN 1 ELSE 0 END), 0) AS today_count,
-                      COALESCE(SUM(CASE WHEN status = 'approved' AND approved_at >= ? THEN amount ELSE 0 END), 0) AS month,
-                      COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS pending,
-                      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
-               FROM wallet_transactions WHERE kind = 'topup'""",
-            (day_start, day_start, month_start),
-        ).fetchone()
+        funding = funding_totals(db)
         return render_template("admin_finance_dashboard.html" if current_user()["created_by_admin"] else "admin_dashboard.html", ledger=ledger, topups=topups, recent_topups=recent_topups, businesses=businesses,
                                revenue=revenue, redemption_count=redemption_count, fee=redemption_fee(db), funding=funding,
                                pending_business_count=pending_business_count, business_total=business_total,
@@ -3313,6 +3300,10 @@ def create_app(test_config=None):
         db = get_db()
         try:
             db.execute("BEGIN IMMEDIATE")
+            if app.config["DATABASE_URL"]:
+                # PostgreSQL's plain BEGIN takes no lock; without this a Paystack
+                # credit landing mid-adjustment would be overwritten.
+                db.execute("SELECT id FROM businesses WHERE id = ? FOR UPDATE", (business_id,))
             business = db.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
             if not business:
                 raise ValueError("Business not found.")
@@ -3367,6 +3358,7 @@ def create_app(test_config=None):
         app, get_db, current_user, roles_required, timestamp, utcnow, record_admin_action)
 
     register_nearby(app, get_db, current_user, business_for_user, roles_required, timestamp)
+    funding_totals = register_funding(app, get_db, roles_required, admin_can)
     issue_verification, public_url, email_samples = register_email_flows(app, get_db, current_user, roles_required, timestamp, utcnow, admin_can)
     app.extensions['email_samples'] = email_samples
 
