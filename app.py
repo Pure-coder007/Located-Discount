@@ -2017,6 +2017,8 @@ def create_app(test_config=None):
                         WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
                           CASE WHEN EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id)
                           THEN 'Suspended — wallet' ELSE 'Live' END
+                        WHEN deals.is_approved = 0 AND deals.review_status = 'changes_requested' THEN 'Changes requested'
+                        WHEN deals.is_approved = 0 AND deals.review_status = 'disapproved' THEN 'Disapproved'
                         WHEN deals.is_approved = 0 THEN 'Pending review'
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
@@ -2052,6 +2054,8 @@ def create_app(test_config=None):
                         WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
                           CASE WHEN EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id)
                           THEN 'Suspended — wallet' ELSE 'Live' END
+                        WHEN deals.is_approved = 0 AND deals.review_status = 'changes_requested' THEN 'Changes requested'
+                        WHEN deals.is_approved = 0 AND deals.review_status = 'disapproved' THEN 'Disapproved'
                         WHEN deals.is_approved = 0 THEN 'Pending review'
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
@@ -2068,7 +2072,7 @@ def create_app(test_config=None):
         summary = {
             "total": deal_total,
             "live": sum(1 for deal in all_deals if deal["deal_status"] == "Live"),
-            "pending": sum(1 for deal in all_deals if deal["deal_status"] == "Pending review"),
+            "pending": sum(1 for deal in all_deals if deal["deal_status"] in ("Pending review", "Changes requested", "Disapproved")),
             "suspended": sum(1 for deal in all_deals if deal["deal_status"] == "Suspended — wallet"),
             "closed": sum(1 for deal in all_deals if deal["deal_status"] in {"Closed", "Expired"}),
             "claims": sum(deal["claims"] for deal in all_deals),
@@ -2117,6 +2121,8 @@ def create_app(test_config=None):
                         WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
                           CASE WHEN EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id)
                           THEN 'Suspended — wallet' ELSE 'Live' END
+                        WHEN deals.is_approved = 0 AND deals.review_status = 'changes_requested' THEN 'Changes requested'
+                        WHEN deals.is_approved = 0 AND deals.review_status = 'disapproved' THEN 'Disapproved'
                         WHEN deals.is_approved = 0 THEN 'Pending review'
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
