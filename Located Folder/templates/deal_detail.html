@@ -28,7 +28,7 @@
         </div>
         {% set rating = rating_summary(deal.id) %}<p class="deal-rating">★ {% if rating.total %}{{ rating.average|round(1) }}/5 · {{ rating.total }} reviews{% else %}No ratings yet{% endif %}</p>
 
-        <p class="deal-description">{{ deal.description }}</p>
+        <div class="deal-description">{{ deal.description|bullets }}</div>
         <div class="deal-countdown" data-countdown="{{ deal.expires_at }}"><i class="bi bi-clock"></i> <span>{{ days_left(deal) }} days to go</span></div>
         <p class="deal-availability">{% if daily_remaining %}{{ daily_remaining }} vouchers left today{% else %}Today's allocation claimed. Returns at midnight Lagos time.{% endif %}</p>
         <a class="deal-vendor" href="{{ url_for('vendor_detail', business_id=deal.business_id) }}">
@@ -54,7 +54,7 @@
 
   <div class="deal-utility-row">
     <a href="https://www.google.com/maps/dir/?api=1&amp;destination={{ (deal.business_name ~ ' ' ~ deal.address ~ ' ' ~ deal.city)|urlencode }}" data-directions data-destination="{{ deal.business_name }}, {{ deal.address }}, {{ deal.city }}"><i class="bi bi-geo-alt"></i> Get directions</a>
-    <details><summary><i class="bi bi-info-circle"></i> Offer terms</summary><p>{{ deal.terms }}</p></details>
+    <details><summary><i class="bi bi-info-circle"></i> Offer terms</summary><div>{{ deal.terms|bullets }}</div></details>
   </div>
 </div>
 <div class="deal-lightbox" data-lightbox hidden role="dialog" aria-modal="true" aria-label="Expanded deal image"><button type="button" class="deal-lightbox-close" data-lightbox-close aria-label="Close image"><i class="bi bi-x-lg"></i></button><button type="button" class="gallery-nav gallery-prev" data-lightbox-prev aria-label="Previous photo">‹</button><img data-lightbox-image draggable="false" alt="{{ deal.title }}"><button type="button" class="gallery-nav gallery-next" data-lightbox-next aria-label="Next photo">›</button><output class="gallery-counter" data-lightbox-counter aria-live="polite"></output></div>

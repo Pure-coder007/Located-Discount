@@ -663,6 +663,24 @@ def create_app(test_config=None):
         image = qrcode.make(value, image_factory=qrcode.image.svg.SvgPathImage, border=2)
         return Markup(image.to_string(encoding="unicode"))
 
+    def deal_points(value):
+        """Split vendor text into its lines, dropping any typed bullet marks."""
+        lines = (re.sub(r"^\s*[-*\u2022\u00b7\u25aa\u25cf\u2013]+\s*", "", line).strip() for line in str(value or "").splitlines())
+        return [line for line in lines if line]
+
+    @app.template_filter("bullets")
+    def bullets(value):
+        """Show each line of a deal description or terms as its own bullet."""
+        points = deal_points(value)
+        if len(points) <= 1:
+            return Markup("<p>{}</p>").format(points[0] if points else "")
+        return Markup('<ul class="deal-bullets">{}</ul>').format(Markup("").join(Markup("<li>{}</li>").format(point) for point in points))
+
+    @app.template_filter("inline_points")
+    def inline_points(value):
+        """One-line preview of a bulleted text for clamped card teasers."""
+        return " \u2022 ".join(deal_points(value))
+
     def require_csrf():
         token = request.form.get("csrf_token", "")
         expected = session.get("csrf_token", "")
@@ -711,7 +729,7 @@ def create_app(test_config=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self)"
-        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws://{request.host} wss://{request.host} https://nominatim.openstreetmap.org; img-src 'self' data: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
+        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws://{request.host} wss://{request.host} https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://res.cloudinary.com; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self';"
         if request.endpoint == 'email_preview':
             # Only the sample email needs inline styles; all scripts/forms stay blocked.
             response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -2315,6 +2333,7 @@ def create_app(test_config=None):
                     flash(str(error) or "Could not save your deal.", "danger")
                 else:
                     notify_business(business["id"], "Deal submitted for review", f"Your deal '{title}' was submitted and is waiting for administrator review.", "info")
+                    session["clear_deal_draft"] = f"{business['id']}:new"
                     flash("Deal submitted for admin approval. It can go live after approval and wallet funding.", "success")
                     return redirect(url_for("business_dashboard"))
         selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else request.form.get("opening_hours", business["opening_hours"])
@@ -2396,6 +2415,7 @@ def create_app(test_config=None):
                     if previous_images:
                         cleanup_product_images(previous_images)
                     notify_business(business["id"], "Deal resubmitted", f"Your changes to '{title}' were saved and the deal was sent back for administrator review.", "info")
+                    session["clear_deal_draft"] = f"{business['id']}:{deal_id}"
                     flash("Deal updated and submitted for admin approval again.", "success")
                     return redirect(url_for("business_dashboard"))
         selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else business["opening_hours"]

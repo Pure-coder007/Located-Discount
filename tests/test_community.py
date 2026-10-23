@@ -655,6 +655,31 @@ class CommunityTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wallet_suspended_deals').fetchone()[0], 0)
 
+    def test_deal_text_lines_render_as_bullets(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE deals SET description=?, terms=? WHERE id=?", ('\u2022 Juicy <b>burger</b>\n- Free fries\n\n', 'Weekdays only', self.deal))
+        page = self.client.get(f'/deals/{self.deal}').data
+        self.assertIn(b'<ul class="deal-bullets"><li>Juicy &lt;b&gt;burger&lt;/b&gt;</li><li>Free fries</li></ul>', page)
+        self.assertIn(b'<p>Weekdays only</p>', page)
+        self.assertIn('Juicy &lt;b&gt;burger&lt;/b&gt; \u2022 Free fries'.encode(), self.client.get('/deals').data)
+
+    def test_successful_deal_submit_clears_the_device_draft(self):
+        self.login_as(self.owner)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
+        form = self.client.get('/business/deals/new').data
+        self.assertIn(f'data-deal-draft="{self.business}:new"'.encode(), form)
+        self.assertNotIn(b'data-clear-deal-draft', form)
+        payload = {'title': 'Draft offer', 'description': 'A discount on quality products.', 'terms': 'Valid in store only.',
+                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'redemption_limit': '50', 'accept_policies': '1',
+                   'expires_at': (utcnow()+timedelta(days=5)).strftime('%Y-%m-%dT%H:%M')}
+        failed = self.post('/business/deals/new', {**payload, 'accept_policies': ''}, follow=True).data
+        self.assertNotIn(b'data-clear-deal-draft', failed)
+        self.assertIn(b'data-draft-rerender="1"', failed)
+        done = self.post('/business/deals/new', payload, follow=True).data
+        self.assertIn(f'data-clear-deal-draft="{self.business}:new"'.encode(), done)
+        self.assertNotIn(b'data-clear-deal-draft', self.client.get('/business').data)
+
     def test_deal_submission_requires_policy_acknowledgement(self):
         self.login_as(self.owner)
         with sqlite3.connect(self.path) as db:

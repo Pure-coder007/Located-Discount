@@ -33,6 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const transfer = new DataTransfer();
       selectedFiles.forEach((file) => transfer.items.add(file));
       input.files = transfer.files;
+      input.dispatchEvent(new CustomEvent("deal-images-updated", { bubbles: true }));
     };
 
     const renderPreviews = () => {
@@ -72,10 +73,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
 
-    input.addEventListener("change", () => {
+    input.addEventListener("change", async () => {
       const incoming = Array.from(input.files || []).filter((file) => file.type.startsWith("image/"));
       const available = Math.max(0, 5 - selectedFiles.length);
-      selectedFiles = selectedFiles.concat(incoming.slice(0, available));
+      let accepted = incoming.slice(0, available);
+      // Restored drafts are already cropped; new picks go through the cropper.
+      if (window.ldCropImages && !input.dataset.skipCrop) accepted = await window.ldCropImages(accepted);
+      delete input.dataset.skipCrop;
+      selectedFiles = selectedFiles.concat(accepted);
       syncInputFiles();
       renderPreviews();
       if (counter && incoming.length > available) {

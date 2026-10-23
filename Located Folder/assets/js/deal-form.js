@@ -29,3 +29,35 @@ document.addEventListener('DOMContentLoaded', () => {
   expiry.addEventListener('change', enforce);
   expiry.form.addEventListener('submit', enforce);
 });
+
+// Description and terms render one bullet per line; start each new line
+// with a bullet so vendors can see the list they are building.
+document.addEventListener('DOMContentLoaded', () => {
+  const BULLET = '• ';
+  document.querySelectorAll('textarea[data-bullets]').forEach((area) => {
+    const insert = (text) => {
+      const { selectionStart: start, selectionEnd: end, value } = area;
+      area.value = value.slice(0, start) + text + value.slice(end);
+      area.selectionStart = area.selectionEnd = start + text.length;
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    area.addEventListener('focus', () => {
+      if (!area.value.trim()) { area.value = BULLET; area.selectionStart = area.selectionEnd = area.value.length; }
+    });
+    area.addEventListener('beforeinput', (event) => {
+      if (event.inputType !== 'insertLineBreak' && event.inputType !== 'insertParagraph') return;
+      event.preventDefault();
+      const lineStart = area.value.lastIndexOf('\n', area.selectionStart - 1) + 1;
+      const line = area.value.slice(lineStart, area.selectionStart);
+      // Enter on an empty bullet ends the list instead of adding another.
+      if (line === BULLET) {
+        area.value = area.value.slice(0, lineStart) + area.value.slice(area.selectionStart);
+        area.selectionStart = area.selectionEnd = lineStart;
+        insert('\n');
+      } else insert('\n' + BULLET);
+    });
+    area.addEventListener('blur', () => {
+      if (area.value.trim() === BULLET.trim()) area.value = '';
+    });
+  });
+});
