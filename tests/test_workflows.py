@@ -115,7 +115,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
             {
                 "title": "20% off lunch", "category": "Food & Drink", "expires_at": (utcnow() + timedelta(days=6)).strftime("%Y-%m-%dT%H:%M"),
                 "description": "Twenty percent off any weekday lunch order.", "redemption_limit": "10",
-                "terms": "Valid Monday to Friday only.", "regular_price": "2500", "discount_price": "2000",
+                "terms": "Valid Monday to Friday only.", "regular_price": "2500", "discount_price": "2000", "accept_policies": "1",
             },
             follow_redirects=True,
         )
@@ -255,7 +255,7 @@ class LocatediscountWorkflowTests(unittest.TestCase):
                 "title": "20% off lunch", "category": "Food & Drink", "expires_at": (utcnow() + timedelta(days=6)).strftime("%Y-%m-%dT%H:%M"),
                 "description": "An updated weekday lunch offer with rice, protein, and vegetables.",
                 "redemption_limit": "10", "daily_voucher_limit": "5", "max_vouchers_per_customer": "1",
-                "terms": "Valid Monday to Friday only.", "regular_price": "2500", "discount_price": "2000",
+                "terms": "Valid Monday to Friday only.", "regular_price": "2500", "discount_price": "2000", "accept_policies": "1",
             },
             follow_redirects=True,
         )

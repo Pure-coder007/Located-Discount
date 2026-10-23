@@ -568,7 +568,7 @@ class CommunityTests(unittest.TestCase):
             db.execute("INSERT INTO category_tags(id,category_id,name) VALUES ('beauty-tag','beauty','Hair')")
         self.login_as(self.owner)
         payload = {'title': 'Furniture offer', 'description': 'A discount on new furniture.', 'terms': 'Valid in store only.',
-                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000',
+                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'accept_policies': '1',
                    'redemption_limit': '50', 'expires_at': (utcnow() + timedelta(days=6)).strftime('%Y-%m-%dT%H:%M'), 'tags': ['beauty-tag']}
         invalid = self.post('/business/deals/new', payload, follow=True)
         self.assertIn(b'Choose tags from the selected category', invalid.data)
@@ -655,12 +655,30 @@ class CommunityTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wallet_suspended_deals').fetchone()[0], 0)
 
+    def test_deal_submission_requires_policy_acknowledgement(self):
+        self.login_as(self.owner)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
+        payload = {'title': 'Policy offer', 'description': 'A discount on quality products.', 'terms': 'Valid in store only.',
+                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'redemption_limit': '50',
+                   'expires_at': (utcnow()+timedelta(days=5)).strftime('%Y-%m-%dT%H:%M')}
+        self.assertIn(b'name="accept_policies"', self.client.get('/business/deals/new').data)
+        self.assertIn(b'Terms of service and Privacy policy', self.post('/business/deals/new', payload, follow=True).data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM deals WHERE title='Policy offer'").fetchone()[0], 0)
+        self.assertEqual(self.post('/business/deals/new', {**payload, 'accept_policies': '1'}).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            deal_id = db.execute("SELECT id FROM deals WHERE title='Policy offer'").fetchone()[0]
+        self.assertIn(b'Terms of service and Privacy policy', self.post(f'/business/deals/{deal_id}/edit', {**payload, 'title': 'Changed offer'}, follow=True).data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT title FROM deals WHERE id=?", (deal_id,)).fetchone()[0], 'Policy offer')
+
     def test_vendor_expiry_is_capped_on_create_edit_and_renew(self):
         self.login_as(self.owner)
         with sqlite3.connect(self.path) as db:
             db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
         payload = {'title': 'Seven day offer', 'description': 'A discount on quality products.', 'terms': 'Valid in store only.',
-                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'redemption_limit': '50',
+                   'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'accept_policies': '1', 'redemption_limit': '50',
                    'expires_at': (utcnow()+timedelta(days=8)).strftime('%Y-%m-%dT%H:%M')}
         invalid = self.post('/business/deals/new', payload, follow=True)
         self.assertIn(b'next seven days', invalid.data)

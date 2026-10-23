@@ -2279,7 +2279,9 @@ def create_app(test_config=None):
             discount_price_kobo = naira_to_kobo(request.form.get("discount_price", ""))
             try: expires_at = parse_vendor_expiry(request.form)
             except ValueError: expires_at = None
-            if not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS)):
+            if request.form.get("accept_policies") != "1":
+                flash("Please confirm that you have read and understood the Terms of service and Privacy policy before submitting.", "danger")
+            elif not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS)):
                 flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
                 db = get_db()
@@ -2349,7 +2351,9 @@ def create_app(test_config=None):
                      and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None
                      and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo
                      and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS))
-            if not valid:
+            if request.form.get("accept_policies") != "1":
+                flash("Please confirm that you have read and understood the Terms of service and Privacy policy before submitting.", "danger")
+            elif not valid:
                 flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
                 images = []

@@ -33,6 +33,7 @@
         <div class="sm:col-span-2">{% include '_opening_hours_form.html' %}</div>
         <div class="sm:col-span-2"><label class="app-label">Terms and exclusions</label><textarea class="app-input min-h-28" name="terms" maxlength="1200" required placeholder="State dates, products, and any exclusions.">{{ request.form.get('terms', existing.terms if existing else '') }}</textarea></div>
 
+        <div class="sm:col-span-2"><label class="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"><input class="mt-1" type="checkbox" name="accept_policies" value="1" required {% if request.form.get('accept_policies') == '1' %}checked{% endif %}><span>I have read and understood the <a class="font-extrabold text-pine" href="{{ url_for('policy_page', policy_key='terms') }}" target="_blank" rel="noopener">Terms of service</a> and <a class="font-extrabold text-pine" href="{{ url_for('policy_page', policy_key='privacy') }}" target="_blank" rel="noopener">Privacy policy</a>.</span></label></div>
         <div class="sm:col-span-2"><button class="app-button w-full" type="submit">{{ 'Save and resubmit for approval' if existing else 'Submit for approval' }} <i class="bi bi-send"></i></button></div>
       </form>
     </section>
