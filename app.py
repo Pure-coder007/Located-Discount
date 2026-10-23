@@ -1048,6 +1048,16 @@ def create_app(test_config=None):
             if transaction["status"] != "pending" or amount_kobo != transaction["amount"] * 100:
                 db.rollback()
                 return False
+            # The callback and webhook can arrive together. Only the request
+            # that moves the row out of 'pending' may credit the wallet;
+            # PostgreSQL's plain BEGIN takes no lock on the earlier SELECT.
+            claim = db.execute(
+                "UPDATE wallet_transactions SET status = 'approved', approved_at = ? WHERE id = ? AND status = 'pending'",
+                (timestamp(), transaction["id"]),
+            )
+            if claim.rowcount != 1:
+                db.rollback()
+                return True
             db.execute(
                 """UPDATE businesses
                    SET wallet_balance = wallet_balance + ?,
@@ -1055,10 +1065,6 @@ def create_app(test_config=None):
                        low_balance_alerted_at = NULL
                    WHERE id = ?""",
                 (transaction["amount"], transaction["amount"], transaction["business_id"]),
-            )
-            db.execute(
-                "UPDATE wallet_transactions SET status = 'approved', approved_at = ? WHERE id = ?",
-                (timestamp(), transaction["id"]),
             )
             db.commit()
             send_wallet_receipt(transaction)
@@ -3231,7 +3237,8 @@ def create_app(test_config=None):
             db.execute("BEGIN IMMEDIATE")
             transaction = db.execute("SELECT * FROM wallet_transactions WHERE id = ? AND kind = 'topup' AND status = 'pending' AND reference NOT LIKE 'PSTK-%'", (transaction_id,)).fetchone()
             if not transaction: raise ValueError("This top-up is no longer pending.")
-            db.execute("UPDATE wallet_transactions SET status = 'approved', approved_at = ?, approved_by = ? WHERE id = ?", (timestamp(), current_user()["id"], transaction_id))
+            claim = db.execute("UPDATE wallet_transactions SET status = 'approved', approved_at = ?, approved_by = ? WHERE id = ? AND status = 'pending'", (timestamp(), current_user()["id"], transaction_id))
+            if claim.rowcount != 1: raise ValueError("This top-up is no longer pending.")
             db.execute("UPDATE businesses SET wallet_balance = wallet_balance + ?, needs_top_up = 0, low_balance_alerted_at = NULL WHERE id = ?", (transaction["amount"], transaction["business_id"]))
             db.execute("INSERT INTO admin_audit_logs (admin_id, action, target_type, target_id, details, created_at) VALUES (?, 'approve_topup', 'wallet_transaction', ?, ?, ?)", (current_user()["id"], transaction_id, transaction["reference"], timestamp()))
             db.commit(); send_wallet_receipt(transaction); flash("Top-up approved and wallet credited.", "success")
