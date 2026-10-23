@@ -2617,8 +2617,23 @@ def create_app(test_config=None):
         ).fetchone()["total"]
         revenue = db.execute("SELECT COALESCE(SUM(fee_charged), 0) total FROM ledger_entries").fetchone()["total"]
         redemption_count = db.execute("SELECT COUNT(*) total FROM ledger_entries").fetchone()["total"]
+        # Day and month boundaries follow Lagos time (UTC+1); stored times are UTC.
+        lagos = timezone(timedelta(hours=1))
+        today = datetime.now(lagos).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_start, month_start = timestamp(today.astimezone(timezone.utc)), timestamp(today.replace(day=1).astimezone(timezone.utc))
+        funding = db.execute(
+            """SELECT COALESCE(SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END), 0) AS total,
+                      COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) AS count,
+                      COALESCE(SUM(CASE WHEN status = 'approved' AND approved_at >= ? THEN amount ELSE 0 END), 0) AS today,
+                      COALESCE(SUM(CASE WHEN status = 'approved' AND approved_at >= ? THEN 1 ELSE 0 END), 0) AS today_count,
+                      COALESCE(SUM(CASE WHEN status = 'approved' AND approved_at >= ? THEN amount ELSE 0 END), 0) AS month,
+                      COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS pending,
+                      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
+               FROM wallet_transactions WHERE kind = 'topup'""",
+            (day_start, day_start, month_start),
+        ).fetchone()
         return render_template("admin_finance_dashboard.html" if current_user()["created_by_admin"] else "admin_dashboard.html", ledger=ledger, topups=topups, recent_topups=recent_topups, businesses=businesses,
-                               revenue=revenue, redemption_count=redemption_count, fee=redemption_fee(db),
+                               revenue=revenue, redemption_count=redemption_count, fee=redemption_fee(db), funding=funding,
                                pending_business_count=pending_business_count, business_total=business_total,
                                ledger_page=ledger_page, ledger_pages=ledger_pages,
                                topup_page=topup_page, topup_pages=topup_pages,

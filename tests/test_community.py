@@ -655,6 +655,19 @@ class CommunityTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wallet_suspended_deals').fetchone()[0], 0)
 
+    def test_admin_dashboard_totals_wallet_funding(self):
+        old = timestamp(utcnow() - timedelta(days=40))
+        with sqlite3.connect(self.path) as db:
+            for amount, status, approved in ((1000, 'approved', timestamp()), (3000, 'approved', old), (500, 'pending', None), (700, 'rejected', None)):
+                db.execute("INSERT INTO wallet_transactions(business_id,amount,kind,status,reference,note,created_at,approved_at) VALUES (?,?,'topup',?,?,'t',?,?)",
+                           (self.business, amount, status, f'PSTK-{uuid4().hex}', approved or timestamp(), approved))
+            db.execute("INSERT INTO wallet_transactions(business_id,amount,kind,status,reference,note,created_at,approved_at) VALUES (?,-1000,'adjustment','posted','ADJ-1','fix',?,?)", (self.business, timestamp(), timestamp()))
+        self.login_as(self.admin)
+        page = self.client.get('/admin').data.decode()
+        self.assertIn('<small>Total received</small><strong>₦4,000</strong><em>2 payments, all time</em>', page)
+        self.assertIn('<small>Today</small><strong>₦1,000</strong><em>1 payment</em>', page)
+        self.assertIn('<strong>₦500</strong><em>1 started, not paid or verified</em>', page)
+
     def test_deal_text_lines_render_as_bullets(self):
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE deals SET description=?, terms=? WHERE id=?", ('\u2022 Juicy <b>burger</b>\n- Free fries\n\n', 'Weekdays only', self.deal))
