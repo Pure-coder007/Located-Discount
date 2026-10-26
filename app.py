@@ -445,6 +445,9 @@ def create_app(test_config=None):
             db.execute("ALTER TABLE codes ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1")
         if "unit_price_kobo" not in code_columns:
             db.execute("ALTER TABLE codes ADD COLUMN unit_price_kobo INTEGER NOT NULL DEFAULT 0")
+        wallet_columns = {row["name"] for row in db.execute("PRAGMA table_info(wallet_transactions)").fetchall()}
+        if "checked_at" not in wallet_columns:
+            db.execute("ALTER TABLE wallet_transactions ADD COLUMN checked_at TEXT")
         for name, definition in (("claimed_area", "TEXT"), ("user_agent", "TEXT"), ("ip_address", "TEXT")):
             if name not in code_columns:
                 db.execute(f"ALTER TABLE codes ADD COLUMN {name} {definition}")
@@ -489,6 +492,12 @@ def create_app(test_config=None):
         """Create or update the configured database tables."""
         init_db()
         click.echo("Database initialized.")
+
+    @app.cli.command("reconcile-paystack")
+    def reconcile_paystack_command():
+        """Credit Paystack top-ups that succeeded but were never confirmed (for cron)."""
+        credited, failed = reconcile_paystack_topups(limit=50)
+        print(f"Paystack reconciliation: {credited} credited, {failed} marked failed.")
 
     @app.cli.command("create-admin")
     @click.option("--email", prompt=True)
@@ -1069,8 +1078,14 @@ def create_app(test_config=None):
             if transaction["status"] == "approved":
                 db.rollback()
                 return True
-            if transaction["status"] != "pending" or amount_kobo != transaction["amount"] * 100:
+            expected_kobo = transaction["amount"] * 100
+            # With "customer pays the fees" Paystack's amount includes its charge;
+            # requested_amount is then what this top-up asked for.
+            if transaction["status"] != "pending" or expected_kobo not in (amount_kobo, payment.get("requested_amount")):
                 db.rollback()
+                if transaction["status"] == "pending":
+                    app.logger.warning("Paystack amount %s (requested %s) does not match top-up %s of %s kobo",
+                                       amount_kobo, payment.get("requested_amount"), reference, expected_kobo)
                 return False
             # The callback and webhook can arrive together. Only the request
             # that moves the row out of 'pending' may credit the wallet;
@@ -1096,6 +1111,45 @@ def create_app(test_config=None):
         except DATABASE_ERRORS:
             db.rollback()
             raise
+
+    def reconcile_paystack_topups(business_id=None, limit=5):
+        """Ask Paystack about unconfirmed top-ups that the callback and webhook missed.
+
+        A customer who pays by transfer or closes the Paystack page never returns
+        to the callback, and the webhook only arrives if it is configured, so this
+        is the safety net. Each top-up is checked at most every two minutes, for a
+        week. Returns (credited, failed).
+        """
+        secret_key = app.config["PAYSTACK_SECRET_KEY"]
+        if not secret_key:
+            return 0, 0
+        db = get_db()
+        now = utcnow()
+        sql = """SELECT id, reference FROM wallet_transactions
+                 WHERE kind = 'topup' AND status = 'pending' AND reference LIKE 'PSTK-%'
+                   AND created_at >= ? AND created_at <= ? AND (checked_at IS NULL OR checked_at < ?)"""
+        params = [timestamp(now - timedelta(days=7)), timestamp(now - timedelta(seconds=15)), timestamp(now - timedelta(minutes=2))]
+        if business_id is not None:
+            sql += " AND business_id = ?"
+            params.append(business_id)
+        rows = db.execute(sql + " ORDER BY created_at DESC LIMIT ?", (*params, limit)).fetchall()
+        credited = failed = 0
+        for row in rows:
+            db.execute("UPDATE wallet_transactions SET checked_at = ? WHERE id = ?", (timestamp(), row["id"]))
+            try:
+                payment = verify_transaction(secret_key, app.config["PAYSTACK_API_BASE"], row["reference"], timeout=6)
+            except PaystackError as error:
+                app.logger.info("Paystack check for %s did not complete: %s", row["reference"], error)
+                continue
+            status = payment.get("status")
+            if status == "success" and apply_paystack_topup(payment):
+                credited += 1
+            elif status in ("failed", "reversed"):
+                failed += db.execute(
+                    "UPDATE wallet_transactions SET status = 'rejected', note = ? WHERE id = ? AND status = 'pending'",
+                    (f"Paystack reported this payment as {status}", row["id"]),
+                ).rowcount
+        return credited, failed
 
     def category_names(include_inactive=False):
         sql = "SELECT name FROM categories"
@@ -2496,6 +2550,10 @@ def create_app(test_config=None):
                 flash('Use Paystack to fund your wallet, including bank transfers. New manual transfers are no longer accepted.', 'info')
                 return redirect(url_for('wallet'))
         db = get_db()
+        credited, _ = reconcile_paystack_topups(business["id"])
+        if credited:
+            business = business_for_user(current_user()["id"])
+            flash("Paystack confirmed your payment and your wallet has been credited." if credited == 1 else f"Paystack confirmed {credited} payments and your wallet has been credited.", "success")
         total = db.execute("SELECT COUNT(*) total FROM wallet_transactions WHERE business_id = ?", (business["id"],)).fetchone()["total"]
         page, total_pages, per_page, offset = page_window(total)
         transactions = db.execute("SELECT * FROM wallet_transactions WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", (business["id"], per_page, offset)).fetchall()
@@ -3269,6 +3327,23 @@ def create_app(test_config=None):
         )
         flash("Business access updated.", "success")
         return redirect(url_for("admin_businesses"))
+
+    @app.post("/admin/topups/reconcile")
+    @roles_required("admin")
+    def reconcile_topups():
+        if not admin_can("finance"):
+            abort(403)
+        if not app.config["PAYSTACK_SECRET_KEY"]:
+            flash("Paystack is not configured on the server.", "warning")
+        else:
+            credited, failed = reconcile_paystack_topups(limit=25)
+            record_admin_action("reconcile_paystack", "wallet_transactions", "paystack", f"credited {credited}, failed {failed}")
+            if credited or failed:
+                flash(f"Checked with Paystack: {credited} payment{'s' if credited != 1 else ''} confirmed and credited, {failed} marked failed.", "success")
+            else:
+                flash("Checked with Paystack: no unconfirmed payments have completed yet. Each is re-checked at most every two minutes.", "info")
+        target = request.form.get("next", "")
+        return redirect(target if target.startswith("/admin") else url_for("admin_dashboard"))
 
     @app.post("/admin/topups/<string:transaction_id>/approve")
     @roles_required("admin")

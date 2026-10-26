@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS business_notifications (
 );
 CREATE INDEX IF NOT EXISTS business_notifications_idx ON business_notifications(business_id, created_at);
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS checked_at TEXT;
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS unit_price_kobo INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS claimed_area TEXT;
 ALTER TABLE codes ADD COLUMN IF NOT EXISTS user_agent TEXT;

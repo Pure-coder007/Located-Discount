@@ -60,5 +60,5 @@ def initialize_transaction(secret_key, api_base, *, email, amount_kobo, referenc
     )
 
 
-def verify_transaction(secret_key, api_base, reference):
-    return _request(secret_key, f"{api_base.rstrip('/')}/transaction/verify/{quote(reference, safe='')}")
+def verify_transaction(secret_key, api_base, reference, timeout=12):
+    return _request(secret_key, f"{api_base.rstrip('/')}/transaction/verify/{quote(reference, safe='')}", timeout=timeout)

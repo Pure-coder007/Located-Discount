@@ -3,7 +3,7 @@
 {% block portal_eyebrow %}Finance{% endblock %}
 {% block portal_title %}Wallet funding report{% endblock %}
 {% block portal_subtitle %}Every naira businesses have paid into their wallets, by period, method and business. Times are Lagos time.{% endblock %}
-{% block portal_actions %}<a href="{{ url_for('admin_funding_report_csv', **export_args) }}" class="inline-flex items-center gap-2 rounded-xl bg-pine px-4 py-3 text-xs font-extrabold text-white"><i class="bi bi-download"></i> Download CSV</a>{% endblock %}
+{% block portal_actions %}<div class="funding-header-actions"><form method="post" action="{{ url_for('reconcile_topups') }}" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button type="submit" class="funding-recheck"><i class="bi bi-arrow-repeat"></i> Re-check with Paystack</button></form><a href="{{ url_for('admin_funding_report_csv', **export_args) }}" class="inline-flex items-center gap-2 rounded-xl bg-pine px-4 py-3 text-xs font-extrabold text-white"><i class="bi bi-download"></i> Download CSV</a></div>{% endblock %}
 {% block portal_content %}
 {% set naira = '₦{:,.0f}' %}
 <section class="funding-periods" aria-label="Confirmed funding by period">

@@ -3,6 +3,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -795,6 +796,53 @@ class CommunityTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT quantity FROM codes WHERE deal_id=?', (self.deal,)).fetchone()[0], 3)
         again = self.post(f'/deals/{self.deal}/claim', {'quantity': '1'}, follow=True).data.decode()
         self.assertIn('already have a voucher for 3 units', again)
+
+    def add_pending_paystack(self, amount, reference, age_minutes=5):
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO wallet_transactions(business_id,amount,kind,status,reference,note,created_at) VALUES (?,?,'topup','pending',?,'Paystack wallet top-up',?)",
+                       (self.business, amount, reference, timestamp(utcnow() - timedelta(minutes=age_minutes))))
+
+    def wallet_state(self, reference):
+        with sqlite3.connect(self.path) as db:
+            return (db.execute('SELECT wallet_balance FROM businesses WHERE id=?', (self.business,)).fetchone()[0],
+                    db.execute('SELECT status FROM wallet_transactions WHERE reference=?', (reference,)).fetchone()[0])
+
+    def test_wallet_view_credits_paystack_payments_the_callback_missed(self):
+        self.app.config['PAYSTACK_SECRET_KEY'] = 'sk_test_unit'
+        self.add_pending_paystack(1000, 'PSTK-MISSED1')
+        self.add_pending_paystack(800, 'PSTK-FAILED1')
+        self.add_pending_paystack(600, 'PSTK-TOONEW1', age_minutes=0)
+        def paystack(secret, base, reference, timeout=12):
+            return {'PSTK-MISSED1': {'reference': reference, 'status': 'success', 'currency': 'NGN', 'amount': 101500, 'requested_amount': 100000},
+                    'PSTK-FAILED1': {'reference': reference, 'status': 'failed', 'currency': 'NGN', 'amount': 80000}}[reference]
+        self.login_as(self.owner)
+        with patch('app.verify_transaction', side_effect=paystack) as verify:
+            page = self.client.get('/business/wallet').data.decode()
+            self.assertEqual(verify.call_count, 2)
+            self.client.get('/business/wallet')
+            self.assertEqual(verify.call_count, 2)  # checked rows wait two minutes; settled rows are done
+        self.assertIn('Paystack confirmed your payment', page)
+        self.assertEqual(self.wallet_state('PSTK-MISSED1'), (6000, 'approved'))
+        self.assertEqual(self.wallet_state('PSTK-FAILED1')[1], 'rejected')
+        self.assertEqual(self.wallet_state('PSTK-TOONEW1')[1], 'pending')
+
+    def test_admin_recheck_and_mismatched_amount_is_not_credited(self):
+        self.app.config['PAYSTACK_SECRET_KEY'] = 'sk_test_unit'
+        self.add_pending_paystack(1000, 'PSTK-ADMIN01')
+        self.add_pending_paystack(1000, 'PSTK-SHORT01')
+        def paystack(secret, base, reference, timeout=12):
+            amount = 100000 if reference == 'PSTK-ADMIN01' else 50000
+            return {'reference': reference, 'status': 'success', 'currency': 'NGN', 'amount': amount}
+        self.login_as(self.admin)
+        with patch('app.verify_transaction', side_effect=paystack):
+            response = self.post('/admin/topups/reconcile', {'next': '/admin/topups/report'})
+        self.assertEqual(response.headers['Location'], '/admin/topups/report')
+        self.assertEqual(self.wallet_state('PSTK-ADMIN01'), (6000, 'approved'))
+        self.assertEqual(self.wallet_state('PSTK-SHORT01')[1], 'pending')
+        self.assertIn('1 payment confirmed and credited', self.client.get('/admin/topups/report').data.decode())
+        self.assertEqual(self.post('/admin/topups/reconcile', {'next': 'https://evil.example'}).headers['Location'], '/admin')
+        self.login_as(self.owner)
+        self.assertEqual(self.post('/admin/topups/reconcile').status_code, 403)
 
     def test_deal_text_lines_render_as_bullets(self):
         with sqlite3.connect(self.path) as db:
