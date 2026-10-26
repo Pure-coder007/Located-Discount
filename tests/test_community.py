@@ -142,7 +142,7 @@ class CommunityTests(unittest.TestCase):
         with other.session_transaction() as state:
             token = state['csrf_token']
         exhausted = other.post(f'/deals/{self.deal}/claim', data={'csrf_token': token, 'name': 'Another customer', 'phone': '+2348098765432'}, follow_redirects=True)
-        self.assertIn(b"exceeds the vouchers remaining", exhausted.data)
+        self.assertIn(b"This deal has no vouchers left.", exhausted.data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM codes').fetchone()[0], 3)
             self.assertIsNone(db.execute("SELECT id FROM users WHERE phone = '+2348098765432'").fetchone())
@@ -362,7 +362,7 @@ class CommunityTests(unittest.TestCase):
             state['consumer_id'] = self.consumer
         with patch('app.utcnow', return_value=now):
             response = self.post(f'/deals/{self.deal}/claim', {'quantity': '1'}, follow=True)
-            self.assertIn(b"today&#39;s voucher allocation", response.data)
+            self.assertIn(b"Today&#39;s vouchers for this deal are all claimed", response.data)
             page = self.client.get(f'/deals/{self.deal}').data
             self.assertIn(b"Today's allocation claimed", page)
             self.assertNotIn(b'>SOLD OUT<', page)
@@ -733,6 +733,69 @@ class CommunityTests(unittest.TestCase):
         self.login_as(self.owner)
         self.assertEqual(self.client.get('/admin/topups/report').status_code, 403)
 
+    def test_deal_form_shows_vendor_policy_agreement(self):
+        self.login_as(self.owner)
+        form = self.client.get('/business/deals/new').data.decode()
+        self.assertIn('I confirm that I have read and agree to the', form)
+        for key in ('terms', 'vendor', 'privacy'):
+            self.assertIn(f'href="/policies/{key}"', form)
+        self.assertIn('Platform Protection Policy', self.client.get('/policies/vendor').data.decode())
+        document = self.client.get('/policies/vendor/document')
+        self.assertEqual(document.mimetype, 'application/pdf')
+        self.assertTrue(document.data.startswith(b'%PDF'))
+
+    def test_review_queue_moves_sent_back_and_disapproved_deals_out(self):
+        pending, returned, rejected = str(uuid4()), str(uuid4()), str(uuid4())
+        with sqlite3.connect(self.path) as db:
+            for deal_id, title in ((pending, 'Waiting offer'), (returned, 'Returned offer'), (rejected, 'Rejected offer')):
+                db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,is_active,is_approved,review_status,created_at) VALUES (?,?,?,?,?,?,?,10,0,0,'pending',?)",
+                           (deal_id, self.business, title, 'A good offer for you', 'Shopping', 'In store', timestamp(utcnow() + timedelta(days=3)), timestamp()))
+        self.login_as(self.admin)
+        queue = self.client.get('/admin/deals').data.decode()
+        self.assertIn('Returned offer', queue)
+        self.assertEqual(self.post(f'/admin/deals/{returned}/review', {'action': 'changes_requested', 'reason': 'Please add a clearer photo'}).headers['Location'], '/admin/deals?status=pending')
+        self.post(f'/admin/deals/{rejected}/review', {'action': 'disapproved', 'reason': 'Misleading price claim'})
+        queue = self.client.get('/admin/deals').data.decode()
+        self.assertIn('Waiting offer', queue)
+        self.assertNotIn('Returned offer', queue)
+        self.assertNotIn('Rejected offer', queue)
+        sent_back = self.client.get('/admin/deals?status=sent_back').data.decode()
+        self.assertIn('Returned offer', sent_back)
+        self.assertIn('Please add a clearer photo', sent_back)
+        self.assertNotIn('Rejected offer', sent_back)
+        self.assertIn('Rejected offer', self.client.get('/admin/deals?status=disapproved').data.decode())
+        self.assertIn('<b class="portal-nav-badge">1</b>', self.client.get('/admin/deals').data.decode().split('</nav>')[0])
+        # The vendor resubmits: the deal returns to the review queue.
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
+        self.login_as(self.owner)
+        self.post(f'/business/deals/{returned}/edit', {'title': 'Returned offer', 'description': 'A good offer for you', 'terms': 'In store',
+                  'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'redemption_limit': '10', 'accept_policies': '1',
+                  'expires_at': (utcnow() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')})
+        self.login_as(self.admin)
+        self.assertIn('Returned offer', self.client.get('/admin/deals').data.decode())
+        self.assertNotIn('Returned offer', self.client.get('/admin/deals?status=sent_back').data.decode())
+
+    def test_claim_keeps_quantity_and_enforces_limits_in_units(self):
+        with self.client.session_transaction() as state:
+            state['consumer_id'] = self.consumer
+        page = self.client.get(f'/deals/{self.deal}/claim').data.decode()
+        # Today's allocation is 3-7 units, so a voucher can always hold 3.
+        today_max = int(page.split('data-max="')[1].split('"')[0])
+        self.assertGreaterEqual(today_max, 3)
+        self.assertIn(f'You can get up to {today_max} vouchers', page)
+        # Asking for more than today's allocation keeps the chosen quantity on the page.
+        too_many = self.post(f'/deals/{self.deal}/claim', {'quantity': str(today_max + 1)})
+        self.assertEqual(too_many.status_code, 409)
+        self.assertIn(f'value="{today_max + 1}"', too_many.data.decode())
+        self.assertIn(f'Only {today_max} vouchers can be claimed for this deal today', too_many.data.decode())
+        done = self.post(f'/deals/{self.deal}/claim', {'quantity': '3'}, follow=True).data.decode()
+        self.assertIn('3 vouchers', done)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT quantity FROM codes WHERE deal_id=?', (self.deal,)).fetchone()[0], 3)
+        again = self.post(f'/deals/{self.deal}/claim', {'quantity': '1'}, follow=True).data.decode()
+        self.assertIn('already have a voucher for 3 units', again)
+
     def test_deal_text_lines_render_as_bullets(self):
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE deals SET description=?, terms=? WHERE id=?", ('\u2022 Juicy <b>burger</b>\n- Free fries\n\n', 'Weekdays only', self.deal))
@@ -766,13 +829,13 @@ class CommunityTests(unittest.TestCase):
                    'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'redemption_limit': '50',
                    'expires_at': (utcnow()+timedelta(days=5)).strftime('%Y-%m-%dT%H:%M')}
         self.assertIn(b'name="accept_policies"', self.client.get('/business/deals/new').data)
-        self.assertIn(b'Terms of service and Privacy policy', self.post('/business/deals/new', payload, follow=True).data)
+        self.assertIn(b'tick the box to confirm you agree to the Vendor Terms and Conditions', self.post('/business/deals/new', payload, follow=True).data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM deals WHERE title='Policy offer'").fetchone()[0], 0)
         self.assertEqual(self.post('/business/deals/new', {**payload, 'accept_policies': '1'}).status_code, 302)
         with sqlite3.connect(self.path) as db:
             deal_id = db.execute("SELECT id FROM deals WHERE title='Policy offer'").fetchone()[0]
-        self.assertIn(b'Terms of service and Privacy policy', self.post(f'/business/deals/{deal_id}/edit', {**payload, 'title': 'Changed offer'}, follow=True).data)
+        self.assertIn(b'tick the box to confirm you agree to the Vendor Terms and Conditions', self.post(f'/business/deals/{deal_id}/edit', {**payload, 'title': 'Changed offer'}, follow=True).data)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT title FROM deals WHERE id=?", (deal_id,)).fetchone()[0], 'Policy offer')
 

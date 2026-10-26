@@ -62,6 +62,7 @@ POLICY_DOCUMENTS = {
     "terms": ("Terms of Service", "LOCATEDISCOUNT TERMS OF SERVICE (1).pdf"),
     "privacy": ("Privacy Policy", "Locatediscount Privacy Policy (1).pdf"),
     "faq": ("Frequently Asked Questions", "Locatediscount FAQ (1).pdf"),
+    "vendor": ("Vendor Content, Deal Accuracy, Voucher Redemption and Platform Protection Policy", "LOCATEDISCOUNT VENDOR CONTENT.pdf"),
 }
 
 
@@ -634,7 +635,7 @@ def create_app(test_config=None):
             admin_attention = get_db().execute(
                 """SELECT
                      (SELECT COUNT(*) FROM businesses WHERE is_approved = 0 AND is_blocked = 0) AS businesses,
-                     (SELECT COUNT(*) FROM deals WHERE is_approved = 0) AS deals,
+                     (SELECT COUNT(*) FROM deals WHERE is_approved = 0 AND review_status = 'pending' AND deleted_at IS NULL) AS deals,
                      (SELECT COUNT(*) FROM wallet_transactions
                         WHERE kind = 'topup' AND status = 'pending' AND reference NOT LIKE 'PSTK-%') AS topups"""
             ).fetchone()
@@ -876,6 +877,10 @@ def create_app(test_config=None):
 
     def voucher_stock_remaining(db, deal):
         return stock_remaining(db, deal)
+
+    def claimable_vouchers(db, deal):
+        """Most units one voucher can hold right now: today's allocation, capped by stock."""
+        return daily_voucher_remaining(db, deal, utcnow())
 
     def opening_hours_by_day(value):
         result = {day: {"open": "", "close": "", "closed": False, "display": ""} for day in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
@@ -1745,8 +1750,14 @@ def create_app(test_config=None):
             flash("This deal is no longer available.", "danger")
             return redirect(url_for("home"))
         consumer = current_consumer_profile()
+
+        def claim_page(status=200):
+            # Re-rendering keeps the chosen quantity and details after an error.
+            return render_template("claim_code.html", deal=deal, consumer=consumer,
+                                   max_quantity=claimable_vouchers(db, deal)), status
+
         if request.method == "GET":
-            return render_template("claim_code.html", deal=deal, consumer=consumer)
+            return claim_page()
 
         name = request.form.get("name", "").strip()
         phone = request.form.get("phone", "").strip()
@@ -1757,15 +1768,15 @@ def create_app(test_config=None):
             quantity = 0
         if quantity < 1:
             flash("Enter a positive whole number of vouchers.", "danger")
-            return render_template("claim_code.html", deal=deal, consumer=consumer), 400
+            return claim_page(400)
         stars = request.form.get("stars", "").strip()
         if stars and stars not in {"1", "2", "3", "4", "5"}:
             flash("Choose a rating from one to five stars, or leave it blank.", "danger")
-            return render_template("claim_code.html", deal=deal, consumer=consumer), 400
+            return claim_page(400)
         if not consumer:
             if not 2 <= len(name) <= 80 or not PHONE_RE.match(phone) or len(area) > 80:
                 flash("Enter your name, a valid phone number, and an optional area up to 80 characters.", "danger")
-                return render_template("claim_code.html", deal=deal, consumer=None), 400
+                return claim_page(400)
         try:
             db.execute("BEGIN IMMEDIATE")
             if app.config["DATABASE_URL"]:
@@ -1781,13 +1792,14 @@ def create_app(test_config=None):
             consumer_id = consumer["id"] if consumer else create_consumer_profile(db, name, phone, area)
             device_id = ensure_consumer_device(db, consumer_id)
             existing = db.execute(
-                "SELECT id FROM codes WHERE device_id = ? AND deal_id = ? ORDER BY created_at LIMIT 1",
+                "SELECT id, quantity FROM codes WHERE device_id = ? AND deal_id = ? ORDER BY created_at LIMIT 1",
                 (device_id, deal_id),
             ).fetchone()
             if existing:
                 db.commit()
                 session["consumer_id"] = consumer_id
-                flash("You already have a voucher for this deal. Here it is; each device can generate one voucher per deal.", "info")
+                units = existing["quantity"]
+                flash(f"You already have a voucher for {units} unit{'s' if units != 1 else ''} of this deal, shown below. Each device can generate one voucher per deal, so its quantity cannot be changed.", "info")
                 return redirect(url_for("code_detail", code_id=existing["id"]))
             if deal["max_vouchers_per_customer"]:
                 claimed = db.execute(
@@ -1796,10 +1808,12 @@ def create_app(test_config=None):
                 ).fetchone()["total"]
                 if claimed >= deal["max_vouchers_per_customer"]:
                     raise ValueError("You have reached this deal's voucher limit per customer.")
-            if voucher_stock_remaining(db, deal) < quantity:
-                raise ValueError("The requested quantity exceeds the vouchers remaining for this deal.")
-            if daily_voucher_remaining(db, deal, utcnow()) < quantity:
-                raise ValueError("The requested quantity exceeds today's voucher allocation. Choose fewer vouchers or return tomorrow.")
+            stock = voucher_stock_remaining(db, deal)
+            if stock < quantity:
+                raise ValueError(f"Only {stock} voucher{'s' if stock != 1 else ''} remain for this deal. Choose {stock} or fewer." if stock else "This deal has no vouchers left.")
+            today_left = daily_voucher_remaining(db, deal, utcnow())
+            if today_left < quantity:
+                raise ValueError(f"Only {today_left} voucher{'s' if today_left != 1 else ''} can be claimed for this deal today. Choose {today_left} or fewer, or return tomorrow." if today_left else "Today's vouchers for this deal are all claimed. Please return tomorrow.")
             reservation = db.execute(
                 """INSERT INTO device_deal_claims (deal_id, device_id, created_at)
                    VALUES (?, ?, ?) ON CONFLICT (deal_id, device_id) DO NOTHING""",
@@ -1853,6 +1867,7 @@ def create_app(test_config=None):
                 return redirect(url_for("home"))
             if str(error) == "This device has already generated a voucher for this deal.":
                 return redirect(url_for("deals"))
+            return claim_page(409)
         return redirect(url_for("deal_detail", deal_id=deal_id))
 
     @app.route("/codes/<string:code_id>")
@@ -2305,7 +2320,7 @@ def create_app(test_config=None):
             try: expires_at = parse_vendor_expiry(request.form)
             except ValueError: expires_at = None
             if request.form.get("accept_policies") != "1":
-                flash("Please confirm that you have read and understood the Terms of service and Privacy policy before submitting.", "danger")
+                flash("Please tick the box to confirm you agree to the Vendor Terms and Conditions, the Vendor Content, Deal Accuracy, Voucher Redemption and Platform Protection Policy, and the Privacy Notice before submitting.", "danger")
             elif not (3 <= len(title) <= 120 and 10 <= len(description) <= 1200 and 5 <= len(terms) <= 1200 and opening_hours is not None and category in category_names() and 1 <= limit <= 100000 and 1 <= daily_limit <= 1000 and customer_limit in {0, 1, 2, 3, 4, 5} and regular_price_kobo is not None and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS)):
                 flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
@@ -2378,7 +2393,7 @@ def create_app(test_config=None):
                      and discount_price_kobo is not None and 0 < discount_price_kobo < regular_price_kobo
                      and expires_at and utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS))
             if request.form.get("accept_policies") != "1":
-                flash("Please confirm that you have read and understood the Terms of service and Privacy policy before submitting.", "danger")
+                flash("Please tick the box to confirm you agree to the Vendor Terms and Conditions, the Vendor Content, Deal Accuracy, Voucher Redemption and Platform Protection Policy, and the Privacy Notice before submitting.", "danger")
             elif not valid:
                 flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
             else:
@@ -2741,21 +2756,25 @@ def create_app(test_config=None):
     def admin_deals():
         db = get_db()
         status = request.args.get("status", "pending")
-        if status not in {"pending", "renewals", "live", "all"}:
+        if status not in {"pending", "renewals", "sent_back", "disapproved", "live", "all"}:
             status = "pending"
-        renewal_sql = "deals.renewal_requested_at IS NOT NULL AND deals.is_approved = 0 AND deals.review_status = 'pending'"
+        # Each unapproved deal sits in exactly one queue. Sent-back deals wait on
+        # the vendor and return to "pending" when they resubmit.
+        open_sql = "deals.is_approved = 0 AND deals.deleted_at IS NULL"
+        renewal_sql = f"{open_sql} AND deals.review_status = 'pending' AND deals.renewal_requested_at IS NOT NULL"
+        queues = {
+            "pending": f"{open_sql} AND deals.review_status = 'pending' AND deals.renewal_requested_at IS NULL",
+            "renewals": renewal_sql,
+            "sent_back": f"{open_sql} AND deals.review_status = 'changes_requested'",
+            "disapproved": f"{open_sql} AND deals.review_status = 'disapproved'",
+        }
         counts = db.execute(
-            f"""SELECT
-                  (SELECT COUNT(*) FROM deals WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved'))
-                     AND NOT ({renewal_sql})) AS pending,
-                  (SELECT COUNT(*) FROM deals WHERE {renewal_sql}) AS renewals"""
+            "SELECT " + ", ".join(f"(SELECT COUNT(*) FROM deals WHERE {sql}) AS {name}" for name, sql in queues.items())
         ).fetchone()
         where = ""
         filter_params = []
-        if status == "pending":
-            where = f"WHERE (deals.is_approved = 0 OR deals.review_status IN ('pending', 'changes_requested', 'disapproved')) AND NOT ({renewal_sql})"
-        elif status == "renewals":
-            where = f"WHERE {renewal_sql}"
+        if status in queues:
+            where = f"WHERE {queues[status]}"
         elif status == "live":
             where = "WHERE deals.is_approved = 1 AND deals.is_active = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id) AND deals.expires_at > ?"
             filter_params = [timestamp()]
@@ -2856,8 +2875,8 @@ def create_app(test_config=None):
         db.execute("UPDATE deals SET is_active = 0, is_approved = 0, review_status = ?, review_reason = ?, approved_at = NULL, approved_by = NULL, renewal_requested_at = NULL, renewal_days = NULL WHERE id = ?", (action, reason, deal_id))
         notify_business(deal["business_id"], "Deal changes requested" if action == "changes_requested" else "Deal disapproved", f"Your deal '{deal['title']}' was {'sent back for correction' if action == 'changes_requested' else 'disapproved'} by an administrator. Reason: {reason}", "warning" if action == "changes_requested" else "danger")
         record_admin_action(action, "deal", deal_id, reason)
-        flash("Deal sent back to the vendor with your correction reason." if action == "changes_requested" else "Deal disapproved and unpublished.", "success")
-        return redirect(url_for("admin_deal_detail", deal_id=deal_id))
+        flash("Deal sent back to the vendor with your correction reason. It is now under \u201cSent back to vendor\u201d and returns to New deals when the vendor resubmits." if action == "changes_requested" else "Deal disapproved and unpublished. It is now under \u201cDisapproved\u201d.", "success")
+        return redirect(url_for("admin_deals", status="pending"))
 
     @app.post("/admin/deals/<string:deal_id>/fee")
     @roles_required("admin")
