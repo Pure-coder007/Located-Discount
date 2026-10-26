@@ -844,6 +844,26 @@ class CommunityTests(unittest.TestCase):
         self.login_as(self.owner)
         self.assertEqual(self.post('/admin/topups/reconcile').status_code, 403)
 
+    def test_reconcile_command_credits_and_survives_receipt_errors(self):
+        self.app.config['PAYSTACK_SECRET_KEY'] = 'sk_test_unit'
+        self.app.config['PUBLIC_BASE_URL'] = 'https://locatediscount.example'
+        self.add_pending_paystack(1000, 'PSTK-CLI0001')
+        self.add_pending_paystack(500, 'PSTK-CLI0002')
+        ok = lambda secret, base, reference, timeout=12: {'reference': reference, 'status': 'success', 'currency': 'NGN',
+                                                         'amount': 100000 if reference == 'PSTK-CLI0001' else 50000}
+        with patch('app.verify_transaction', side_effect=ok):
+            result = self.app.test_cli_runner().invoke(args=['reconcile-paystack'])
+        self.assertIsNone(result.exception, result.output)
+        self.assertIn('2 credited', result.output)
+        self.assertEqual(self.wallet_state('PSTK-CLI0002'), (6500, 'approved'))
+        # A failing receipt is logged, not raised, once the wallet is credited.
+        self.add_pending_paystack(700, 'PSTK-CLI0003')
+        with patch('app.verify_transaction', side_effect=lambda *a, **k: {'reference': 'PSTK-CLI0003', 'status': 'success', 'currency': 'NGN', 'amount': 70000}), \
+             patch('app.send_email', side_effect=RuntimeError('mail down')):
+            result = self.app.test_cli_runner().invoke(args=['reconcile-paystack'])
+        self.assertIsNone(result.exception, result.output)
+        self.assertEqual(self.wallet_state('PSTK-CLI0003'), (7200, 'approved'))
+
     def test_deal_text_lines_render_as_bullets(self):
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE deals SET description=?, terms=? WHERE id=?", ('\u2022 Juicy <b>burger</b>\n- Free fries\n\n', 'Weekdays only', self.deal))

@@ -496,7 +496,9 @@ def create_app(test_config=None):
     @app.cli.command("reconcile-paystack")
     def reconcile_paystack_command():
         """Credit Paystack top-ups that succeeded but were never confirmed (for cron)."""
-        credited, failed = reconcile_paystack_topups(limit=50)
+        # Receipts contain links; outside a web request they need the public address.
+        with app.test_request_context(base_url=app.config.get("PUBLIC_BASE_URL") or "http://localhost"):
+            credited, failed = reconcile_paystack_topups(limit=50)
         print(f"Paystack reconciliation: {credited} credited, {failed} marked failed.")
 
     @app.cli.command("create-admin")
@@ -1241,11 +1243,16 @@ def create_app(test_config=None):
             db.execute('UPDATE businesses SET low_balance_alerted_at=? WHERE id=?', (timestamp(), business_id))
 
     def send_wallet_receipt(transaction):
-        owner = get_db().execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (transaction['business_id'],)).fetchone()
-        if owner:
-            send_email('wallet_topup', owner['email'], name=owner['name'], message='Your payment has been verified and added to your business wallet.',
-                details=[('Amount credited', f"₦{transaction['amount']:,}"), ('Reference', transaction['reference'])],
-                action_url=public_url('wallet'), event_id=transaction['id'])
+        # Called after the credit is committed: a receipt problem must never turn
+        # a completed top-up into an error.
+        try:
+            owner = get_db().execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (transaction['business_id'],)).fetchone()
+            if owner:
+                send_email('wallet_topup', owner['email'], name=owner['name'], message='Your payment has been verified and added to your business wallet.',
+                    details=[('Amount credited', f"₦{transaction['amount']:,}"), ('Reference', transaction['reference'])],
+                    action_url=public_url('wallet'), event_id=transaction['id'])
+        except Exception:
+            app.logger.exception("Wallet credited but the receipt for %s could not be sent", transaction['reference'])
 
     def login_attempt_key(email):
         # Do not retain raw login identifiers in the rate-limit table.
