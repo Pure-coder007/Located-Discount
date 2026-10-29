@@ -1,0 +1,33 @@
+{% extends 'portal_base.html' %}
+{% block title %}Delete business | Locatediscount{% endblock %}
+{% block portal_eyebrow %}Vendor operations{% endblock %}
+{% block portal_title %}Delete business permanently{% endblock %}
+{% block portal_subtitle %}Review exactly what will be erased before you confirm.{% endblock %}
+{% block portal_content %}
+<section class="portal-panel max-w-2xl p-6 sm:p-8">
+  <div class="flex items-start gap-4"><span class="portal-icon bg-red-100 text-red-700"><i class="bi bi-exclamation-octagon"></i></span><div><h2 class="portal-heading !mt-0">{{ business.name }}</h2><p class="mt-1 text-sm text-slate-500">{{ business.owner_name }} · {{ business.owner_email }} · {{ business.category }} · {{ business.city }}</p></div></div>
+
+  <div class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+    <p class="font-semibold">This cannot be undone.</p>
+    <p class="mt-1">The vendor's login and every record linked to this business will be erased from the database. Their uploaded images will also be removed. Customers' own accounts are kept, but their vouchers for this business are deleted.</p>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-xl bg-slate-100 p-4"><p class="text-xs text-slate-500">Deals</p><p class="text-lg font-semibold">{{ summary.deals }}</p></div>
+    <div class="rounded-xl bg-slate-100 p-4"><p class="text-xs text-slate-500">Products</p><p class="text-lg font-semibold">{{ summary.products }}</p></div>
+    <div class="rounded-xl bg-slate-100 p-4"><p class="text-xs text-slate-500">Vouchers issued</p><p class="text-lg font-semibold">{{ summary.codes }}</p></div>
+    <div class="rounded-xl bg-slate-100 p-4"><p class="text-xs text-slate-500">Redemptions</p><p class="text-lg font-semibold">{{ summary.redemptions }}</p></div>
+    <div class="rounded-xl bg-slate-100 p-4"><p class="text-xs text-slate-500">Wallet transactions</p><p class="text-lg font-semibold">{{ summary.transactions }}</p></div>
+    <div class="rounded-xl bg-slate-100 p-4"><p class="text-xs text-slate-500">Chat messages</p><p class="text-lg font-semibold">{{ summary.messages }}</p></div>
+  </div>
+
+  {% if business.wallet_balance %}<div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><p class="font-semibold"><i class="bi bi-wallet2"></i> Wallet balance: <span class="font-mono">₦{{ '{:,.0f}'.format(business.wallet_balance) }}</span></p><p class="mt-1">This balance will be erased with the account. Settle or refund it with the vendor before deleting.</p></div>{% endif %}
+
+  <form method="post" class="mt-7 grid gap-5" data-confirm="Permanently delete {{ business.name }} and all of its records? This cannot be undone.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div><label class="app-label" for="confirm_name">Type <b>{{ business.name }}</b> to confirm</label><input class="app-input" id="confirm_name" name="confirm_name" autocomplete="off" required></div>
+    <label class="flex items-start gap-3 text-sm"><input type="checkbox" name="confirm_permanent" value="yes" required class="mt-1"><span>I understand this permanently deletes this business, its owner's account and all of its records.</span></label>
+    <div class="flex flex-wrap gap-3"><button class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700" type="submit"><i class="bi bi-trash3"></i> Delete permanently</button><a class="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold" href="{{ url_for('admin_businesses') }}">Cancel</a></div>
+  </form>
+</section>
+{% endblock %}

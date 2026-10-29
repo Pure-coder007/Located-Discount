@@ -41,7 +41,7 @@ from locatediscount.database import (
 )
 from locatediscount.media import MediaStorageError, destroy_product_image, upload_product_image
 from locatediscount.paystack import PaystackError, initialize_transaction, verify_transaction
-from locatediscount.validators import CODE_RE, EMAIL_RE, NG_PHONE_RE, PHONE_RE, REFERENCE_RE, valid_password
+from locatediscount.validators import CODE_RE, EMAIL_RE, NG_PHONE_RE, PHONE_RE, REFERENCE_RE, email_typo_suggestion, valid_password
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1608,6 +1608,7 @@ def create_app(test_config=None):
             role = "business"
             errors = []
             if not EMAIL_RE.match(email): errors.append("Enter a valid email address.")
+            elif email_typo_suggestion(email): errors.append(f"Please check your email address. Did you mean {email_typo_suggestion(email)}?")
             if not NG_PHONE_RE.match(phone): errors.append("Enter a valid Nigerian mobile number, for example 08031234567 or +2348031234567.")
             if not 2 <= len(name) <= 80: errors.append("Name must be between 2 and 80 characters.")
             elif re.search(r"\d", name): errors.append("Owner name cannot contain numbers.")
@@ -2752,34 +2753,102 @@ def create_app(test_config=None):
                                page=page, total_pages=total_pages, total_businesses=total_businesses,
                                status_counts=status_counts, query=query, status=status)
 
-    @app.post("/admin/businesses/<string:business_id>/delete")
-    @roles_required("admin")
-    def delete_business(business_id):
-        """Remove an unreviewed, unused registration and its owner account.
-
-        Financial or voucher history is intentionally retained: those vendors
-        must be blocked instead, preserving the ledger and audit trail.
-        """
-        db = get_db()
-        business = db.execute("SELECT * FROM businesses WHERE id = ?", (business_id,)).fetchone()
-        if not business:
-            abort(404)
-        activity = db.execute(
+    def business_deletion_summary(db, business_id):
+        return db.execute(
             """SELECT
                  (SELECT COUNT(*) FROM deals WHERE business_id = ?) AS deals,
                  (SELECT COUNT(*) FROM products WHERE business_id = ?) AS products,
                  (SELECT COUNT(*) FROM codes JOIN deals ON deals.id = codes.deal_id WHERE deals.business_id = ?) AS codes,
+                 (SELECT COUNT(*) FROM ledger_entries WHERE business_id = ?) AS redemptions,
                  (SELECT COUNT(*) FROM wallet_transactions WHERE business_id = ?) AS transactions,
-                 (SELECT COUNT(*) FROM ledger_entries WHERE business_id = ?) AS ledger_entries""",
-            (business_id, business_id, business_id, business_id, business_id),
+                 (SELECT COUNT(*) FROM chat_messages WHERE business_id = ?) AS messages""",
+            (business_id,) * 6,
         ).fetchone()
-        if any(activity[key] for key in ("deals", "products", "codes", "transactions", "ledger_entries")):
-            flash("This business has marketplace or financial activity and cannot be removed. Block it instead to preserve the audit trail.", "warning")
+
+    @app.route("/admin/businesses/<string:business_id>/delete", methods=("GET", "POST"))
+    @roles_required("admin")
+    def delete_business(business_id):
+        """Permanently erase a business, its owner account and every record tied to it.
+
+        Restricted to primary administrators. The admin must review what will be
+        erased, type the business name and tick a confirmation box first.
+        """
+        if current_user()["created_by_admin"]:
+            abort(403)
+        db = get_db()
+        business = db.execute(
+            """SELECT businesses.*, users.email AS owner_email, users.name AS owner_name
+               FROM businesses JOIN users ON users.id = businesses.owner_id WHERE businesses.id = ?""",
+            (business_id,),
+        ).fetchone()
+        if not business:
+            abort(404)
+        summary = business_deletion_summary(db, business_id)
+        if request.method == "GET":
+            return render_template("admin_business_delete.html", business=business, summary=summary)
+        typed_name = " ".join(request.form.get("confirm_name", "").split())
+        if typed_name.lower() != " ".join(business["name"].split()).lower() or request.form.get("confirm_permanent") != "yes":
+            flash("Type the business name exactly and tick the confirmation box to delete it.", "danger")
+            return render_template("admin_business_delete.html", business=business, summary=summary), 400
+
+        owner_id = business["owner_id"]
+        deals = "SELECT id FROM deals WHERE business_id = ?"
+        codes = f"SELECT id FROM codes WHERE deal_id IN ({deals})"
+        products = "SELECT id FROM products WHERE business_id = ?"
+        devices = "SELECT id FROM consumer_devices WHERE user_id = ?"
+        images = db.execute(
+            f"""SELECT file_name, public_id, storage_provider FROM deal_images WHERE deal_id IN ({deals})
+                UNION ALL SELECT file_name, public_id, storage_provider FROM product_images WHERE product_id IN ({products})""",
+            (business_id, business_id),
+        ).fetchall()
+        # Children before parents so foreign keys hold on both SQLite and Postgres.
+        statements = (
+            (f"DELETE FROM device_deal_claims WHERE deal_id IN ({deals}) OR code_id IN ({codes}) OR device_id IN ({devices})", (business_id, business_id, owner_id)),
+            (f"DELETE FROM ledger_entries WHERE business_id = ? OR deal_id IN ({deals})", (business_id, business_id)),
+            (f"DELETE FROM codes WHERE deal_id IN ({deals})", (business_id,)),
+            ("UPDATE codes SET redeemed_by = NULL WHERE redeemed_by = ?", (owner_id,)),
+            (f"UPDATE codes SET device_id = NULL WHERE device_id IN ({devices})", (owner_id,)),
+            (f"DELETE FROM favorites WHERE deal_id IN ({deals}) OR user_id = ?", (business_id, owner_id)),
+            (f"DELETE FROM deal_ratings WHERE deal_id IN ({deals}) OR user_id = ?", (business_id, owner_id)),
+            (f"DELETE FROM deal_tags WHERE deal_id IN ({deals})", (business_id,)),
+            (f"DELETE FROM wallet_suspended_deals WHERE deal_id IN ({deals})", (business_id,)),
+            (f"DELETE FROM sold_out_deals WHERE deal_id IN ({deals})", (business_id,)),
+            (f"DELETE FROM deal_images WHERE deal_id IN ({deals})", (business_id,)),
+            ("DELETE FROM deals WHERE business_id = ?", (business_id,)),
+            (f"DELETE FROM product_images WHERE product_id IN ({products})", (business_id,)),
+            ("DELETE FROM products WHERE business_id = ?", (business_id,)),
+            ("DELETE FROM wallet_transactions WHERE business_id = ?", (business_id,)),
+            ("DELETE FROM business_notifications WHERE business_id = ?", (business_id,)),
+            ("DELETE FROM business_locations WHERE business_id = ?", (business_id,)),
+            ("DELETE FROM chat_messages WHERE business_id = ? OR sender_id = ?", (business_id, owner_id)),
+            ("DELETE FROM chat_reads WHERE business_id = ? OR user_id = ?", (business_id, owner_id)),
+            ("DELETE FROM businesses WHERE id = ?", (business_id,)),
+            ("DELETE FROM email_verifications WHERE user_id = ?", (owner_id,)),
+            ("DELETE FROM password_reset_tokens WHERE user_id = ?", (owner_id,)),
+            ("DELETE FROM admin_permissions WHERE user_id = ?", (owner_id,)),
+            ("DELETE FROM consumer_profiles WHERE user_id = ?", (owner_id,)),
+            ("DELETE FROM consumer_devices WHERE user_id = ?", (owner_id,)),
+            ("DELETE FROM users WHERE id = ?", (owner_id,)),
+        )
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            for statement, params in statements:
+                db.execute(statement, params)
+            record_admin_action(
+                "delete_business", "business", business_id,
+                f"Permanently deleted {business['name']} ({business['owner_email']}): {summary['deals']} deals, "
+                f"{summary['products']} products, {summary['codes']} vouchers, {summary['transactions']} wallet transactions, "
+                f"wallet balance {business['wallet_balance']}",
+            )
+            db.commit()
+        except DATABASE_ERRORS:
+            db.rollback()
+            app.logger.exception("Could not delete business %s", business_id)
+            flash("The business could not be deleted. Nothing was changed. Please try again.", "danger")
             return redirect(url_for("admin_businesses"))
-        db.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
-        db.execute("DELETE FROM users WHERE id = ?", (business["owner_id"],))
-        record_admin_action("delete_business", "business", business_id, business["name"])
-        flash("Unverified business registration removed.", "success")
+        # Stored images are removed only after the records are gone for good.
+        cleanup_product_images(images)
+        flash(f"{business['name']} and all of its records were permanently deleted.", "success")
         return redirect(url_for("admin_businesses"))
 
     @app.post("/admin/businesses/<string:business_id>/purge-demo")
@@ -3245,6 +3314,7 @@ def create_app(test_config=None):
             errors = []
             if not 2 <= len(name) <= 80: errors.append("Name must be between 2 and 80 characters.")
             if not EMAIL_RE.match(email): errors.append("Enter a valid email address.")
+            elif email_typo_suggestion(email): errors.append(f"Please check the email address. Did you mean {email_typo_suggestion(email)}?")
             if not PHONE_RE.match(phone): errors.append("Enter a valid phone number.")
             if not valid_password(password): errors.append("Temporary password must be at least 12 characters with a letter and number.")
             if errors:

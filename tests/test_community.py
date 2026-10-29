@@ -455,6 +455,34 @@ class CommunityTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertIsNotNone(db.execute('SELECT verified_at FROM email_verifications').fetchone()[0])
 
+    def test_mistyped_unverified_email_can_be_corrected_with_password(self):
+        import re
+        from werkzeug.security import generate_password_hash
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE users SET email='owner@gmail.con', password_hash=? WHERE id=?", (generate_password_hash('OwnerPassword123'), self.owner))
+        self.login_as(self.owner)
+        self.post('/account/verify-email')
+        messages = self.app.extensions['mail_outbox']
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE email_verifications SET requested_at='2000-01-01'")
+        page = self.client.get('/account/verify-email')
+        self.assertIn(b'Correct your email address', page.data)
+        wrong_password = self.post('/account/verify-email/change-address', {'email': 'owner@gmail.com', 'password': 'nope'}, follow=True)
+        self.assertIn(b'current password is incorrect', wrong_password.data)
+        typo = self.post('/account/verify-email/change-address', {'email': 'owner@gmial.com', 'password': 'OwnerPassword123'}, follow=True)
+        self.assertIn(b'Did you mean owner@gmail.com?', typo.data)
+        taken = self.post('/account/verify-email/change-address', {'email': '2@example.test', 'password': 'OwnerPassword123'}, follow=True)
+        self.assertIn(b'already registered', taken.data)
+        changed = self.post('/account/verify-email/change-address', {'email': 'Owner@Gmail.com', 'password': 'OwnerPassword123'}, follow=True)
+        self.assertIn(b'verification link was sent to owner@gmail.com', changed.data)
+        self.assertEqual(messages[-1]['to'], ['owner@gmail.com'])
+        token = re.search(r'/verify-email/([^"<]+)', messages[-1]['html']).group(1)
+        self.client.get('/verify-email/' + token)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT email FROM users WHERE id=?', (self.owner,)).fetchone()[0], 'owner@gmail.com')
+        # Verified addresses cannot be swapped through this unverified-only form.
+        self.assertEqual(self.post('/account/verify-email/change-address', {'email': 'new@example.test', 'password': 'OwnerPassword123'}).status_code, 403)
+
     def test_resend_delivery_contract_failure_and_no_key(self):
         from locatediscount.mailer import send_email
         from unittest.mock import patch, Mock

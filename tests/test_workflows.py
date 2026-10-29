@@ -285,31 +285,147 @@ class LocatediscountWorkflowTests(unittest.TestCase):
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("Demo seeding is disabled", result.output)
 
-    def test_admin_can_remove_an_unused_pending_business(self):
+    def register_vendor(self, name, email, phone):
         self.post(
             "/register",
             {
-                "name": "Unverified Owner", "email": "unverified@example.com",
-                "phone": "+2348012345699", "password": "UnverifiedPassword123",
-                "business_name": "Unverified Shop", "category": "Shopping",
-                "address": "10 Review Street", "city": "Lagos",
+                "name": f"{name} Owner", "email": email, "phone": phone, "password": "VendorPassword123",
+                "business_name": name, "category": "Shopping", "address": "10 Review Street", "city": "Lagos",
             },
         )
         connection = sqlite3.connect(self.database)
-        business_id, owner_id = connection.execute(
-            "SELECT id, owner_id FROM businesses WHERE name = 'Unverified Shop'"
-        ).fetchone()
+        business_id, owner_id = connection.execute("SELECT id, owner_id FROM businesses WHERE name = ?", (name,)).fetchone()
+        connection.execute("UPDATE businesses SET is_approved = 1, wallet_balance = 3000 WHERE id = ?", (business_id,))
+        connection.commit()
         connection.close()
-        self.create_admin()
-        self.logout()
-        self.login("admin@example.com", "AdminPassword123")
+        return business_id, owner_id
 
-        response = self.post(f"/admin/businesses/{business_id}/delete", {}, follow_redirects=True)
-        self.assertIn(b"Unverified business registration removed", response.data)
+    def test_admin_permanently_deletes_a_business_and_every_record_after_confirming(self):
+        business_id, owner_id = self.register_vendor("Doomed Shop", "doomed@example.com", "+2348012345699")
+        response = self.post(
+            "/business/products",
+            {"name": "Doomed bag", "description": "A handmade leather bag for everyday use.", "price": "4500.00",
+             "product_url": "", "images": (BytesIO(b"\x89PNG\r\n\x1a\nproduct-image"), "bag.png")},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Product published", response.data)
+        self.logout()
+        kept_id, kept_owner_id = self.register_vendor("Kept Shop", "kept@example.com", "+2348012345698")
+        self.logout()
+
         connection = sqlite3.connect(self.database)
-        self.assertIsNone(connection.execute("SELECT 1 FROM businesses WHERE id = ?", (business_id,)).fetchone())
-        self.assertIsNone(connection.execute("SELECT 1 FROM users WHERE id = ?", (owner_id,)).fetchone())
+        connection.execute("PRAGMA foreign_keys = ON")
+        image_name = connection.execute(
+            "SELECT file_name FROM product_images JOIN products ON products.id = product_images.product_id WHERE products.business_id = ?",
+            (business_id,),
+        ).fetchone()[0]
+        for owner, title in ((business_id, "Doomed deal"), (kept_id, "Kept deal")):
+            connection.execute(
+                """INSERT INTO deals (id, business_id, title, description, category, terms, expires_at,
+                   redemption_limit, is_active, is_approved, created_at) VALUES (?, ?, ?, 'Description', 'Shopping', 'Terms', ?, 10, 1, 1, ?)""",
+                (title, owner, title, "2030-12-31T17:00:00+00:00", timestamp()),
+            )
+        connection.execute(
+            "INSERT INTO users (id, email, phone, password_hash, role, name, created_at) VALUES ('customer', 'c@example.com', '+2348090000000', 'x', 'consumer', 'Customer', ?)",
+            (timestamp(),),
+        )
+        for code_id, deal_id in (("doomed-code", "Doomed deal"), ("kept-code", "Kept deal")):
+            connection.execute(
+                "INSERT INTO codes (id, deal_id, user_id, value, status, expires_at, created_at) VALUES (?, ?, 'customer', ?, 'redeemed', ?, ?)",
+                (code_id, deal_id, f"LD-{code_id[:4].upper()}0000", "2030-12-31T17:00:00+00:00", timestamp()),
+            )
+        connection.execute(
+            "INSERT INTO ledger_entries (id, business_id, deal_id, code_id, fee_charged, wallet_balance_after, created_at) VALUES ('ledger', ?, 'Doomed deal', 'doomed-code', 500, 2500, ?)",
+            (business_id, timestamp()),
+        )
+        connection.execute(
+            "INSERT INTO wallet_transactions (id, business_id, amount, kind, status, reference, created_at) VALUES ('topup', ?, 3000, 'topup', 'approved', 'PSTK-DOOMED-1', ?)",
+            (business_id, timestamp()),
+        )
+        connection.execute("INSERT INTO favorites (user_id, deal_id, created_at) VALUES ('customer', 'Doomed deal', ?)", (timestamp(),))
+        connection.commit()
         connection.close()
+
+        self.create_admin()
+        self.login("admin@example.com", "AdminPassword123")
+        listing = self.client.get("/admin/businesses").get_data(as_text=True)
+        self.assertIn(f"/admin/businesses/{business_id}/delete", listing)
+        page = self.client.get(f"/admin/businesses/{business_id}/delete").get_data(as_text=True)
+        self.assertIn("Type <b>Doomed Shop</b> to confirm", page)
+        self.assertIn("₦3,000", page)
+
+        # Nothing is deleted without the typed name and the confirmation box.
+        refused = self.post(f"/admin/businesses/{business_id}/delete", {"confirm_name": "Doomed Shop"})
+        self.assertEqual(refused.status_code, 400)
+        refused = self.post(f"/admin/businesses/{business_id}/delete", {"confirm_name": "Wrong", "confirm_permanent": "yes"})
+        self.assertEqual(refused.status_code, 400)
+        connection = sqlite3.connect(self.database)
+        self.assertIsNotNone(connection.execute("SELECT 1 FROM businesses WHERE id = ?", (business_id,)).fetchone())
+        connection.close()
+
+        response = self.post(
+            f"/admin/businesses/{business_id}/delete",
+            {"confirm_name": " doomed  shop ", "confirm_permanent": "yes"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Doomed Shop and all of its records were permanently deleted", response.data)
+        connection = sqlite3.connect(self.database)
+        for query, params in (
+            ("SELECT 1 FROM businesses WHERE id = ?", (business_id,)),
+            ("SELECT 1 FROM users WHERE id = ?", (owner_id,)),
+            ("SELECT 1 FROM deals WHERE business_id = ?", (business_id,)),
+            ("SELECT 1 FROM products WHERE business_id = ?", (business_id,)),
+            ("SELECT 1 FROM product_images WHERE file_name = ?", (image_name,)),
+            ("SELECT 1 FROM codes WHERE id = 'doomed-code'", ()),
+            ("SELECT 1 FROM ledger_entries WHERE business_id = ?", (business_id,)),
+            ("SELECT 1 FROM wallet_transactions WHERE business_id = ?", (business_id,)),
+            ("SELECT 1 FROM favorites WHERE deal_id = 'Doomed deal'", ()),
+            ("SELECT 1 FROM business_notifications WHERE business_id = ?", (business_id,)),
+            ("SELECT 1 FROM email_verifications WHERE user_id = ?", (owner_id,)),
+        ):
+            self.assertIsNone(connection.execute(query, params).fetchone(), query)
+        # Other vendors and the customer's own account are untouched.
+        self.assertIsNotNone(connection.execute("SELECT 1 FROM businesses WHERE id = ?", (kept_id,)).fetchone())
+        self.assertIsNotNone(connection.execute("SELECT 1 FROM codes WHERE id = 'kept-code'").fetchone())
+        self.assertIsNotNone(connection.execute("SELECT 1 FROM users WHERE id = 'customer'").fetchone())
+        audit = connection.execute("SELECT details FROM admin_audit_logs WHERE action = 'delete_business'").fetchone()[0]
+        connection.close()
+        self.assertIn("Doomed Shop (doomed@example.com)", audit)
+        self.assertFalse((Path(self.app.config["UPLOAD_FOLDER"]) / image_name).exists())
+
+    def test_registration_rejects_a_mistyped_email_domain(self):
+        response = self.post(
+            "/register",
+            {
+                "name": "Typo Owner", "email": "typo@gmail.con", "phone": "+2348012345696", "password": "VendorPassword123",
+                "business_name": "Typo Shop", "category": "Shopping", "address": "10 Review Street", "city": "Lagos",
+            },
+        )
+        self.assertIn(b"Did you mean typo@gmail.com?", response.data)
+        connection = sqlite3.connect(self.database)
+        self.assertIsNone(connection.execute("SELECT 1 FROM users WHERE email = 'typo@gmail.con'").fetchone())
+        connection.close()
+
+    def test_sub_admins_cannot_delete_businesses(self):
+        business_id, _ = self.register_vendor("Protected Shop", "protected@example.com", "+2348012345697")
+        self.logout()
+        self.create_admin()
+        connection = sqlite3.connect(self.database)
+        primary_id = connection.execute("SELECT id FROM users WHERE email = 'admin@example.com'").fetchone()[0]
+        connection.execute(
+            """INSERT INTO users (email, phone, password_hash, role, name, created_at, created_by_admin)
+               VALUES ('staff@example.com', '+2348022222222', ?, 'admin', 'Staff', ?, ?)""",
+            (generate_password_hash("StaffPassword123"), timestamp(), primary_id),
+        )
+        staff_id = connection.execute("SELECT id FROM users WHERE email = 'staff@example.com'").fetchone()[0]
+        connection.execute("INSERT INTO admin_permissions (user_id, permission) VALUES (?, 'businesses')", (staff_id,))
+        connection.commit()
+        connection.close()
+        self.login("staff@example.com", "StaffPassword123")
+        self.assertNotIn(f"/admin/businesses/{business_id}/delete", self.client.get("/admin/businesses").get_data(as_text=True))
+        self.assertEqual(self.client.get(f"/admin/businesses/{business_id}/delete").status_code, 403)
+        response = self.post(f"/admin/businesses/{business_id}/delete", {"confirm_name": "Protected Shop", "confirm_permanent": "yes"})
+        self.assertEqual(response.status_code, 403)
 
     def test_admin_can_purge_legacy_demo_catalogue_without_activity(self):
         connection = sqlite3.connect(self.database)

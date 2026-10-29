@@ -3,7 +3,10 @@ import hashlib
 import secrets
 from datetime import timedelta
 from flask import abort, flash, redirect, render_template, request, url_for
+from werkzeug.security import check_password_hash
+from .database import INTEGRITY_ERRORS
 from .mailer import EMAIL_EVENTS, render_email, send_email
+from .validators import EMAIL_RE, email_typo_suggestion
 
 
 def register_email_flows(app, get_db, current_user, roles_required, timestamp, utcnow, admin_can):
@@ -43,6 +46,42 @@ def register_email_flows(app, get_db, current_user, roles_required, timestamp, u
                 flash('Email delivery is not available yet. Please try again later.', 'warning')
             return redirect(url_for('email_verification'))
         return render_template('email_verification.html', verification=state)
+
+    @app.post('/account/verify-email/change-address')
+    @roles_required('business','admin')
+    def change_unverified_email():
+        """Correct a mistyped address so the verification email can arrive.
+
+        Only unverified addresses can be changed here; the current password is
+        required so an unattended session cannot redirect the account's email.
+        """
+        user = current_user()
+        db = get_db()
+        state = db.execute('SELECT * FROM email_verifications WHERE user_id=?', (user['id'],)).fetchone()
+        if state and state['verified_at']:
+            abort(403)
+        email = request.form.get('email', '').strip().lower()
+        if not check_password_hash(user['password_hash'], request.form.get('password', '')):
+            flash('Your current password is incorrect.', 'danger')
+        elif not EMAIL_RE.match(email):
+            flash('Enter a valid email address.', 'danger')
+        elif email_typo_suggestion(email):
+            flash(f'Please check your email address. Did you mean {email_typo_suggestion(email)}?', 'danger')
+        elif email == user['email'].lower():
+            flash('That is already your email address.', 'info')
+        elif state and state['requested_at'] > timestamp(utcnow()-timedelta(minutes=1)):
+            flash('Please wait one minute before requesting another verification email.', 'info')
+        else:
+            try:
+                db.execute('UPDATE users SET email=? WHERE id=?', (email, user['id']))
+            except INTEGRITY_ERRORS:
+                flash('That email address is already registered.', 'danger')
+            else:
+                if issue_verification(db.execute('SELECT * FROM users WHERE id=?', (user['id'],)).fetchone()):
+                    flash(f'Your email address was updated and a verification link was sent to {email}.', 'success')
+                else:
+                    flash('Your email address was updated, but the verification email could not be sent. Please try again shortly.', 'warning')
+        return redirect(url_for('email_verification'))
 
     @app.get('/verify-email/<token>')
     def verify_email(token):
