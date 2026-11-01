@@ -379,3 +379,73 @@ body.page-loading .page-loader { visibility:visible; pointer-events:auto; opacit
 .admin-queue-state{display:inline-flex;border-radius:999px;padding:6px 10px;font-size:10px;font-weight:800}.admin-queue-state.is-changes_requested{background:#fff5dc;color:#9a680f}.admin-queue-state.is-disapproved{background:#fff0f0;color:#c24141}.admin-queue-reason{max-width:520px;margin-top:8px;border-radius:10px;padding:8px 10px;background:#f8fbff;color:#53657f;font-size:11px;line-height:1.5}
 .voucher-cost.is-error{color:#b42318}.voucher-limit{display:block;margin-top:6px;color:#64748b;font-size:12px;font-weight:600;line-height:1.5}
 .funding-header-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}.funding-recheck{display:inline-flex;align-items:center;gap:6px;border:1px solid #cddcff;border-radius:11px;padding:8px 12px;background:#eff6ff;color:#294d98;font-size:11px;font-weight:800;white-space:nowrap}.funding-recheck:hover{background:#dbeafe}
+
+/* Vendor terms tickbox: a large custom box (iOS draws native ones tiny inside long labels). */
+.policy-accept{display:flex;align-items:flex-start;gap:14px;border:2px solid #d5e2fb;border-radius:14px;padding:16px;background:#f8fbff;color:#475569;font-size:13px;line-height:1.6;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:border-color .15s,background-color .15s}
+.policy-accept:has(.policy-checkbox:checked){border-color:#16805e;background:#f0fbf6}
+.policy-accept a{color:#294d98;font-weight:800;text-decoration:underline}
+.policy-accept-title{display:block;margin-bottom:4px;color:#173774;font-size:14px;font-weight:800;line-height:1.4}
+.portal-shell .policy-checkbox,.policy-checkbox{-webkit-appearance:none;appearance:none;flex:0 0 30px;width:30px;height:30px;min-width:30px;margin:0;border:2px solid #294d98;border-radius:9px;background:#fff center/20px 20px no-repeat;cursor:pointer;transition:background-color .15s,border-color .15s}
+.policy-checkbox:checked{border-color:#16805e;background-color:#16805e;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+.policy-checkbox:focus-visible{outline:3px solid rgba(41,77,152,.35);outline-offset:2px}
+@media(max-width:600px){.portal-shell .policy-checkbox,.policy-checkbox{flex-basis:36px;width:36px;height:36px;min-width:36px;border-radius:10px;background-size:24px 24px}.policy-accept{gap:12px;padding:14px}.policy-accept-title{font-size:15px}}
+
+/* Current photos on the deal edit form. */
+.deal-current-photos-note{margin-bottom:8px;color:#53657f;font-size:11px;font-weight:600}
+[data-existing-images]{margin:0 0 10px}
+
+/* Workspace sidebar: long admin menus scroll inside the sidebar instead of spilling over the footer. */
+@media(min-width:1024px){
+  .portal-nav-wrap{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;margin-right:-6px;padding-right:6px}
+  .portal-sidebar-account{flex-shrink:0;margin-top:1rem!important}
+}
+@media(max-width:1023px){
+  .portal-sidebar.portal-nav-is-open{max-height:100vh;max-height:100dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .portal-sidebar.portal-nav-is-open .portal-nav-wrap nav{max-height:none;overflow:visible}
+  .portal-sidebar.portal-nav-is-open .portal-sidebar-account{padding-bottom:calc(1rem + env(safe-area-inset-bottom))}
+}
+
+/* My deals on phones: each deal becomes a card so Edit, Renew, Manage and Delete are all on screen. */
+.deal-renew-action{border-radius:8px;padding:6px 9px;background:#e8fbf4;color:#16805e!important}
+.deal-renew-action:hover{background:#d1f5e6}
+.deal-detail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
+.deal-detail-actions .deal-edit-button,.deal-detail-actions .deal-renew-action{display:inline-flex;align-items:center;gap:6px;margin:0;padding:8px 12px;font-size:12px;font-weight:800}
+.business-deal-row-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.business-deal-row-actions .deal-edit-button{margin-top:0}
+.business-deal-row-actions .deal-table-action{display:inline-flex;align-items:center;gap:5px;border:1px solid #d5e2fb;border-radius:9px;padding:7px 11px;background:#fff;font-size:11px}
+.business-deal-row-actions .deal-renew-action{border-color:#a7e3cb;background:#e8fbf4}
+@media(max-width:760px){
+  .deal-table-wrap{overflow:visible}
+  .portal-shell .deal-performance-table,.deal-performance-table{display:block;width:100%;min-width:0}
+  .deal-performance-table thead{display:none}
+  .deal-performance-table tbody{display:block}
+  .deal-performance-table tr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;border-top:1px solid #edf1f7;padding:16px}
+  .deal-performance-table td{display:block;min-width:0;border:0;padding:0}
+  .deal-performance-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:3px;color:#94a3b8;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+  .deal-performance-table td.deal-cell-title,.deal-performance-table td.deal-cell-actions,.deal-performance-table td.deal-table-empty{grid-column:1/-1}
+  .deal-performance-table td.deal-cell-performance{grid-column:span 2}
+  .deal-table-title{min-width:0;align-items:flex-start}
+  .deal-table-title strong{font-size:13px}
+  .deal-table-title .deal-edit-button{min-height:42px;padding:9px 14px;font-size:12px}
+  .deal-row-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .deal-row-actions > a,.deal-row-actions > form,.deal-row-actions > form > button{width:100%}
+  .deal-row-actions .deal-table-action,.deal-row-actions .deal-delete-action{display:flex;align-items:center;justify-content:center;gap:5px;min-height:44px;border:1px solid #d5e2fb;border-radius:10px;padding:8px;font-size:12px}
+  .deal-row-actions .deal-renew-action{border-color:#a7e3cb}
+  .deal-row-actions .deal-delete-action{border-color:#fecaca}
+}
+
+/* Admin: renew every expired deal at once. */
+.admin-renew-all{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px;border:1px solid #a7e3cb;border-radius:18px;padding:18px 20px;background:#f0fbf6}
+.admin-renew-all h2{color:#173774;font-size:15px;font-weight:800}
+.admin-renew-all p{margin-top:3px;color:#53657f;font-size:11px;line-height:1.55}
+.admin-renew-all form{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.admin-renew-all label{display:flex;align-items:center;gap:8px;color:#173774;font-size:12px;font-weight:800}
+.admin-renew-all select{border:1px solid #cfe0d8;border-radius:10px;padding:9px 10px;background:#fff;color:#173774;font-size:13px}
+.admin-renew-all button{display:inline-flex;align-items:center;gap:6px;min-height:42px;border-radius:11px;padding:10px 16px;background:#16805e;color:#fff;font-size:12px;font-weight:800}
+.admin-renew-all button:hover{background:#0f6249}
+@media(max-width:600px){.admin-renew-all{padding:16px}.admin-renew-all form,.admin-renew-all button{width:100%}.admin-renew-all button{justify-content:center}}
+/* Keep Delete red and Renew all green; the workspace paints every submit button blue. */
+.portal-shell button.deal-delete-action{background-color:#fff5f5!important;color:#b42318!important}
+.portal-shell button.deal-delete-action:hover{background-color:#fee2e2!important}
+.portal-shell .admin-renew-all button{background-color:#16805e!important;color:#fff!important}
+.portal-shell .admin-renew-all button:hover{background-color:#0f6249!important}

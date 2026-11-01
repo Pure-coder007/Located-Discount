@@ -5,7 +5,7 @@
 (() => {
   const PREFIX = "ld-deal-draft:";
   const MAX_AGE_MS = 3 * 86_400_000;
-  const SKIPPED = new Set(["csrf_token", "images", "accept_policies", "expiry_timezone_offset"]);
+  const SKIPPED = new Set(["csrf_token", "images", "accept_policies", "expiry_timezone_offset", "keep_images", "existing_images_listed"]);
 
   const storage = {
     get(key) { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; } },

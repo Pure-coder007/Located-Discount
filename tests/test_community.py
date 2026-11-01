@@ -1,5 +1,6 @@
 """Regression coverage for private chat and customer offer flows."""
 import json
+from io import BytesIO
 import sqlite3
 import tempfile
 import unittest
@@ -961,3 +962,97 @@ class CommunityTests(unittest.TestCase):
             expiry = db.execute('SELECT expires_at FROM deals WHERE id=?', (deal_id,)).fetchone()[0]
         from datetime import datetime
         self.assertLessEqual(datetime.fromisoformat(expiry), utcnow()+timedelta(days=7))
+
+    def edit_payload(self, **extra):
+        return {'title': 'Local offer', 'description': 'An excellent local offer', 'terms': 'In store only',
+                'category': 'Shopping', 'regular_price': '2500', 'discount_price': '2000', 'accept_policies': '1',
+                'redemption_limit': '100', 'expires_at': (utcnow() + timedelta(days=5)).strftime('%Y-%m-%dT%H:%M'), **extra}
+
+    def test_editing_a_deal_keeps_its_photos_unless_the_vendor_removes_them(self):
+        self.app.config['UPLOAD_FOLDER'] = str(Path(self.temp.name) / 'uploads')
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO categories(id,name,created_at) VALUES ('shopping','Shopping',?)", (timestamp(),))
+            for order in (1, 2, 3):
+                db.execute("INSERT INTO deal_images(deal_id,file_name,sort_order,created_at) VALUES (?,?,?,?)", (self.deal, f'photo{order}.jpg', order, timestamp()))
+            first, second, third = [row[0] for row in db.execute('SELECT id FROM deal_images ORDER BY sort_order').fetchall()]
+        self.login_as(self.owner)
+        form = self.client.get(f'/business/deals/{self.deal}/edit').data
+        for image_id in (first, second, third):
+            self.assertIn(f'name="keep_images" value="{image_id}"'.encode(), form)
+        self.assertIn(b'3 of 5 images selected', form)
+
+        # Saving without touching the photos keeps them all.
+        self.assertEqual(self.post(f'/business/deals/{self.deal}/edit', self.edit_payload(existing_images_listed='1', keep_images=[first, second, third])).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT file_name FROM deal_images ORDER BY sort_order').fetchall(), [('photo1.jpg',), ('photo2.jpg',), ('photo3.jpg',)])
+
+        # Too many photos in total is refused before anything changes.
+        too_many = self.edit_payload(existing_images_listed='1', keep_images=[first, second, third],
+                                     images=[(BytesIO(b'\x89PNG\r\n\x1a\nnew'), f'new{index}.png') for index in range(3)])
+        self.assertIn(b'up to 5 photos', self.post(f'/business/deals/{self.deal}/edit', too_many, follow=True).data)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM deal_images').fetchone()[0], 3)
+
+        # Removing the first photo and adding one: the rest move up and the new one follows.
+        payload = self.edit_payload(existing_images_listed='1', keep_images=[second, third], images=(BytesIO(b'\x89PNG\r\n\x1a\nnew'), 'new.png'))
+        self.assertEqual(self.post(f'/business/deals/{self.deal}/edit', payload).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            rows = db.execute('SELECT file_name, sort_order FROM deal_images ORDER BY sort_order').fetchall()
+        self.assertEqual([row[0] for row in rows[:2]], ['photo2.jpg', 'photo3.jpg'])
+        self.assertEqual([row[1] for row in rows], [1, 2, 3])
+        self.assertTrue(rows[2][0].endswith('.png'))
+
+        # An older cached form that does not list the photos never deletes them.
+        self.assertEqual(self.post(f'/business/deals/{self.deal}/edit', self.edit_payload()).status_code, 302)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM deal_images').fetchone()[0], 3)
+
+    def test_vendor_deal_actions_reach_phones(self):
+        self.login_as(self.owner)
+        deals_page = self.client.get('/business/deals').data
+        self.assertIn(f'/deals/{self.deal}/renew'.encode(), deals_page)
+        self.assertIn(f'href="/business/deals/{self.deal}"'.encode(), deals_page)
+        self.assertIn(b'class="deal-cell-actions"', deals_page)
+        dashboard = self.client.get('/business').data
+        self.assertIn(f'/deals/{self.deal}/renew'.encode(), dashboard)
+        self.assertIn(f'href="/business/deals/{self.deal}"'.encode(), dashboard)
+        self.assertIn(f'/business/deals/{self.deal}/edit'.encode(), self.client.get(f'/business/deals/{self.deal}').data)
+        self.assertIn(b'class="policy-checkbox"', self.client.get('/business/deals/new').data)
+
+    def test_admin_lists_and_renews_all_expired_deals_as_new(self):
+        poor_business, poor_owner, fresh, sold_out, unfunded = str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4()), str(uuid4())
+        long_ago, past = timestamp(utcnow() - timedelta(days=30)), timestamp(utcnow() - timedelta(days=1))
+        with sqlite3.connect(self.path) as db:
+            db.execute('INSERT INTO users(id,email,phone,password_hash,role,name,created_at) VALUES (?,?,?,?,?,?,?)', (poor_owner, 'poor@example.test', '+2348012345699', 'unused', 'business', 'Poor', timestamp()))
+            db.execute('INSERT INTO businesses(id,owner_id,name,category,address,city,is_approved,wallet_balance,created_at) VALUES (?,?,?,?,?,?,1,0,?)', (poor_business, poor_owner, 'Empty Wallet', 'Shopping', 'Ikeja', 'Lagos', timestamp()))
+            # The setUp deal is old and expired; a newer deal is live.
+            db.execute('UPDATE deals SET created_at=?, approved_at=?, expires_at=? WHERE id=?', (long_ago, long_ago, past, self.deal))
+            db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,is_active,is_approved,review_status,created_at,approved_at) VALUES (?,?,'Fresh offer','A newer local offer','Shopping','In store',?,100,1,1,'approved',?,?)", (fresh, self.business, timestamp(utcnow() + timedelta(days=3)), timestamp(utcnow() - timedelta(days=1)), timestamp(utcnow() - timedelta(days=1))))
+            db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,redemption_count,is_active,is_approved,review_status,created_at) VALUES (?,?,'Sold out offer','All vouchers used','Shopping','In store',?,5,5,1,1,'approved',?)", (sold_out, self.business, past, long_ago))
+            db.execute("INSERT INTO deals(id,business_id,title,description,category,terms,expires_at,redemption_limit,is_active,is_approved,review_status,created_at) VALUES (?,?,'Unfunded offer','Wallet is empty','Shopping','In store',?,100,1,1,'approved',?)", (unfunded, poor_business, past, long_ago))
+        self.login_as(self.admin)
+        expired_page = self.client.get('/admin/deals?status=expired').data
+        for title in (b'Local offer', b'Sold out offer', b'Unfunded offer'):
+            self.assertIn(title, expired_page)
+        self.assertNotIn(b'Fresh offer', expired_page)
+        self.assertIn(b'Renew all 3 expired deals', expired_page)
+        self.assertIn(f'/deals/{self.deal}/renew'.encode(), expired_page)
+
+        self.assertEqual(self.post('/admin/deals/renew-expired', {'days': 8}).status_code, 302)
+        response = self.post('/admin/deals/renew-expired', {'days': 3}, follow=True)
+        self.assertIn(b'Renewed 1 expired deal for 3 days', response.data)
+        self.assertIn(b'wallet cannot cover', response.data)
+        self.assertIn(b'all vouchers were used', response.data)
+        with sqlite3.connect(self.path) as db:
+            renewed_expiry = db.execute('SELECT expires_at FROM deals WHERE id=?', (self.deal,)).fetchone()[0]
+            self.assertGreater(renewed_expiry, timestamp())
+            self.assertLessEqual(renewed_expiry, timestamp(utcnow() + timedelta(days=3)))
+            for still_expired in (sold_out, unfunded):
+                self.assertEqual(db.execute('SELECT expires_at FROM deals WHERE id=?', (still_expired,)).fetchone()[0], past)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM admin_audit_logs WHERE action='renew_deal'").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM business_notifications WHERE business_id=? AND title='Deal renewed'", (self.business,)).fetchone()[0], 1)
+
+        # The renewed deal now leads the marketplace, ahead of the newer deal.
+        for page in ('/', '/deals', f'/vendors/{self.business}'):
+            body = self.client.get(page).data
+            self.assertLess(body.index(b'Local offer'), body.index(b'Fresh offer'), page)

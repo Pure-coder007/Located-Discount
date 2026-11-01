@@ -1,6 +1,10 @@
-"""Address normalization shared by discovery and the public platform guide."""
+"""Address normalization and listing order shared by discovery and the public platform guide."""
 import re
 import unicodedata
+
+# Newest on the marketplace first. A renewed or re-approved deal is listed as
+# new again, and a renewal awaiting review sorts by when the business asked.
+NEWEST_DEALS_FIRST = 'COALESCE(deals.renewal_requested_at, deals.approved_at, deals.created_at) DESC'
 
 
 def normalize_location(value):

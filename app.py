@@ -28,7 +28,7 @@ from locatediscount.corrections import register_corrections, stock_remaining, da
 from locatediscount.mailer import send_email
 from locatediscount.nearby import register_nearby, nearby_filter
 from locatediscount.email_flows import register_email_flows
-from locatediscount.discovery import location_terms as parse_location_terms, location_match_sql
+from locatediscount.discovery import NEWEST_DEALS_FIRST, location_terms as parse_location_terms, location_match_sql
 from locatediscount.billing import redeem_code
 from locatediscount.funding import register_funding
 from locatediscount.database import (
@@ -53,6 +53,8 @@ DEFAULT_REDEMPTION_FEE = 500
 MAX_PRODUCT_IMAGES = 5
 MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_VENDOR_DEAL_DAYS = 7
+# Published deals that were neither archived nor deleted; add an expiry test to find expired ones.
+PUBLISHED_DEALS_SQL = "deals.is_approved = 1 AND deals.is_active = 1 AND deals.deleted_at IS NULL"
 PASSWORD_RESET_TTL = timedelta(minutes=30)
 SQLITE_UUID_DEFAULT = (
     "(lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || "
@@ -1211,7 +1213,7 @@ def create_app(test_config=None):
             (business_id, title[:160], message[:2000], kind, timestamp()),
         )
         events = {'Deal submitted for review':'deal_submitted','Deal resubmitted':'deal_submitted',
-            'Deal approved':'deal_approved','Deal changes requested':'deal_review','Deal disapproved':'deal_review',
+            'Deal approved':'deal_approved','Deal renewed':'deal_approved','Deal changes requested':'deal_review','Deal disapproved':'deal_review',
             'Deal archived':'deal_archived','Deal removed from catalogue':'deal_removed','Deal deleted':'deal_removed',
             'Deal fee updated':'deal_fee','Business access updated':'business_status'}
         owner = get_db().execute('SELECT users.* FROM users JOIN businesses ON businesses.owner_id=users.id WHERE businesses.id=?', (business_id,)).fetchone()
@@ -1395,8 +1397,8 @@ def create_app(test_config=None):
                 params.extend([f"%{term}%", f"%{term}%"])
         order_by = {
             "expiring": "deals.expires_at ASC",
-            "popular": "deals.redemption_count DESC, deals.created_at DESC",
-        }.get(sort, "deals.created_at DESC")
+            "popular": f"deals.redemption_count DESC, {NEWEST_DEALS_FIRST}",
+        }.get(sort, NEWEST_DEALS_FIRST)
         proximity_params = []
         if area and not nearby:
             proximity_cases = []
@@ -1512,8 +1514,8 @@ def create_app(test_config=None):
                 params.extend([f"%{term}%", f"%{term}%"])
         order_by = {
             "expiring": "deals.expires_at ASC",
-            "popular": "deals.redemption_count DESC, deals.created_at DESC",
-        }.get(sort, "deals.created_at DESC")
+            "popular": f"deals.redemption_count DESC, {NEWEST_DEALS_FIRST}",
+        }.get(sort, NEWEST_DEALS_FIRST)
         proximity_params = []
         if area and not nearby:
             proximity_cases = []
@@ -2080,12 +2082,12 @@ def create_app(test_config=None):
         deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND is_active = 1 AND is_approved = 1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND expires_at > ?", (business_id, timestamp())).fetchone()["total"]
         deal_page, deal_pages, per_page, deal_offset = page_window(deal_total, "deal_page")
         deals = db.execute(
-            """SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours,
+            f"""SELECT deals.*, businesses.name business_name, businesses.address, businesses.city, businesses.opening_hours,
                       users.phone business_phone FROM deals JOIN businesses ON businesses.id = deals.business_id
                JOIN users ON users.id = businesses.owner_id
                WHERE deals.business_id = ? AND deals.is_active = 1 AND deals.is_approved = 1
                  AND deals.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id = deals.id) AND NOT EXISTS (SELECT 1 FROM sold_out_deals sd WHERE sd.deal_id = deals.id AND sd.hide_at <= CAST(CURRENT_TIMESTAMP AS TEXT)) AND deals.expires_at > ?
-               ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
+               ORDER BY {NEWEST_DEALS_FIRST} LIMIT ? OFFSET ?""",
             (business_id, timestamp(), per_page, deal_offset),
         ).fetchall()
         return render_template("vendor_detail.html", business=business, deals=deals,
@@ -2113,7 +2115,7 @@ def create_app(test_config=None):
         deal_total = db.execute("SELECT COUNT(*) total FROM deals WHERE business_id = ? AND deleted_at IS NULL", (business["id"],)).fetchone()["total"]
         deal_page, deal_pages, limit, deal_offset = page_window(deal_total, "deal_page")
         all_deals = db.execute(
-            """SELECT deals.*,
+            f"""SELECT deals.*,
                       (SELECT opening_hours FROM businesses WHERE id = deals.business_id) AS opening_hours,
                       CASE
                         WHEN deals.is_approved = 1 AND deals.is_active = 1 AND deals.expires_at > ? THEN
@@ -2125,7 +2127,7 @@ def create_app(test_config=None):
                         WHEN deals.expires_at <= ? THEN 'Expired'
                         ELSE 'Closed'
                       END AS deal_status
-               FROM deals WHERE business_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+               FROM deals WHERE business_id = ? AND deleted_at IS NULL ORDER BY {NEWEST_DEALS_FIRST} LIMIT ? OFFSET ?""",
             (timestamp(), timestamp(), business["id"], limit, deal_offset),
         ).fetchall()
         ledger_total = db.execute("SELECT COUNT(*) total FROM ledger_entries WHERE business_id = ?", (business["id"],)).fetchone()["total"]
@@ -2147,7 +2149,7 @@ def create_app(test_config=None):
         db = get_db()
         now = timestamp()
         all_deals = db.execute(
-            """SELECT deals.*,
+            f"""SELECT deals.*,
                       COUNT(codes.id) AS claims,
                       COALESCE(SUM(CASE WHEN codes.status = 'redeemed' THEN 1 ELSE 0 END), 0) AS redemptions,
                       (SELECT file_name FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order LIMIT 1) AS image_file_name,
@@ -2165,7 +2167,7 @@ def create_app(test_config=None):
                FROM deals LEFT JOIN codes ON codes.deal_id = deals.id
                WHERE deals.business_id = ? AND deals.deleted_at IS NULL
                GROUP BY deals.id
-               ORDER BY deals.created_at DESC""",
+               ORDER BY {NEWEST_DEALS_FIRST}""",
             (now, now, business["id"]),
         ).fetchall()
         deal_total = len(all_deals)
@@ -2425,9 +2427,17 @@ def create_app(test_config=None):
         deal = db.execute("SELECT * FROM deals WHERE id = ? AND business_id = ?", (deal_id, business["id"])).fetchone()
         if not deal:
             abort(404)
+        current_images = db.execute("SELECT * FROM deal_images WHERE deal_id = ? ORDER BY sort_order, id", (deal_id,)).fetchall()
+        # The form lists the current photos; any the vendor removed are left out.
+        # A form without that list (an older cached page) keeps every photo.
+        if request.method == "POST" and request.form.get("existing_images_listed") == "1":
+            keep_ids = set(request.form.getlist("keep_images"))
+            kept_images = [image for image in current_images if str(image["id"]) in keep_ids]
+        else:
+            kept_images = list(current_images)
         if request.method == "GET":
             return render_template("create_deal.html", business=business, categories=category_names(),
-                                   fee=redemption_fee(business=business), deal=deal,
+                                   fee=redemption_fee(business=business), deal=deal, existing_images=kept_images,
                                    opening_hours=opening_hours_by_day(deal["opening_hours"] if "opening_hours" in deal.keys() else business["opening_hours"]))
         if request.method == "POST":
             title = request.form.get("title", "").strip()
@@ -2458,15 +2468,20 @@ def create_app(test_config=None):
                 flash("Please tick the box to confirm you agree to the Vendor Terms and Conditions, the Vendor Content, Deal Accuracy, Voucher Redemption and Platform Protection Policy, and the Privacy Notice before submitting.", "danger")
             elif not valid:
                 flash("Choose an expiry date in the next seven days." if not expires_at or not utcnow() < expires_at <= utcnow() + timedelta(days=MAX_VENDOR_DEAL_DAYS) else "Customer-facing description must be at least 10 characters." if len(description) < 10 else "Please check that the prices are valid, the discounted price is lower, voucher limits are positive, the expiry is in the future, and all required deal fields are complete. Opening hours may contain up to 7 lines, with no line longer than 80 characters.", "danger")
+            elif len(kept_images) + len([upload for upload in request.files.getlist("images") if upload and upload.filename]) > MAX_PRODUCT_IMAGES:
+                flash(f"A deal can have up to {MAX_PRODUCT_IMAGES} photos. Remove a current photo before adding another.", "danger")
             else:
                 images = []
-                previous_images = []
+                kept_ids = {str(image["id"]) for image in kept_images}
+                previous_images = [image for image in current_images if str(image["id"]) not in kept_ids]
                 try:
                     images = save_deal_images(request.files.getlist("images"), business["id"])
                     db.execute("BEGIN IMMEDIATE")
-                    if images:
-                        previous_images = db.execute("SELECT * FROM deal_images WHERE deal_id = ?", (deal_id,)).fetchall()
-                        db.execute("DELETE FROM deal_images WHERE deal_id = ?", (deal_id,))
+                    # Current photos stay unless the vendor removed them; new ones follow them.
+                    for image in previous_images:
+                        db.execute("DELETE FROM deal_images WHERE id = ?", (image["id"],))
+                    for order, image in enumerate(kept_images, start=1):
+                        db.execute("UPDATE deal_images SET sort_order = ? WHERE id = ?", (order, image["id"]))
                     db.execute(
                         """UPDATE deals SET title = ?, description = ?, category = ?, terms = ?, expires_at = ?,
                            redemption_limit = ?, regular_price_kobo = ?, discount_price_kobo = ?, daily_voucher_limit = ?,
@@ -2477,7 +2492,7 @@ def create_app(test_config=None):
                     )
                     save_deal_tags(deal_id, category)
                     db.execute("UPDATE businesses SET opening_hours = ? WHERE id = ?", (opening_hours, business["id"]))
-                    for order, image in enumerate(images, start=1):
+                    for order, image in enumerate(images, start=len(kept_images) + 1):
                         db.execute(
                             """INSERT INTO deal_images (deal_id, file_name, secure_url, public_id, storage_provider, sort_order, created_at)
                                VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -2498,7 +2513,7 @@ def create_app(test_config=None):
                     return redirect(url_for("business_dashboard"))
         selected_hours = opening_hours if request.method == "POST" and opening_hours is not None else business["opening_hours"]
         return render_template("create_deal.html", business=business, categories=category_names(),
-                               fee=redemption_fee(business=business), deal=deal,
+                               fee=redemption_fee(business=business), deal=deal, existing_images=kept_images,
                                opening_hours=opening_hours_by_day(selected_hours))
 
     @app.post("/business/deals/<string:deal_id>/archive")
@@ -2890,7 +2905,7 @@ def create_app(test_config=None):
     def admin_deals():
         db = get_db()
         status = request.args.get("status", "pending")
-        if status not in {"pending", "renewals", "sent_back", "disapproved", "live", "all"}:
+        if status not in {"pending", "renewals", "sent_back", "disapproved", "live", "expired", "all"}:
             status = "pending"
         # Each unapproved deal sits in exactly one queue. Sent-back deals wait on
         # the vendor and return to "pending" when they resubmit.
@@ -2902,16 +2917,24 @@ def create_app(test_config=None):
             "sent_back": f"{open_sql} AND deals.review_status = 'changes_requested'",
             "disapproved": f"{open_sql} AND deals.review_status = 'disapproved'",
         }
-        counts = db.execute(
+        counts = dict(db.execute(
             "SELECT " + ", ".join(f"(SELECT COUNT(*) FROM deals WHERE {sql}) AS {name}" for name, sql in queues.items())
-        ).fetchone()
+        ).fetchone())
+        # Published deals whose run has ended; archived and deleted deals stay out.
+        expired_sql = f"{PUBLISHED_DEALS_SQL} AND deals.expires_at <= ?"
+        counts["expired"] = db.execute(f"SELECT COUNT(*) AS total FROM deals WHERE {expired_sql}", (timestamp(),)).fetchone()["total"]
         where = ""
         filter_params = []
+        order_by = "deals.created_at DESC"
         if status in queues:
             where = f"WHERE {queues[status]}"
         elif status == "live":
             where = "WHERE deals.is_approved = 1 AND deals.is_active = 1 AND NOT EXISTS (SELECT 1 FROM wallet_suspended_deals ws WHERE ws.deal_id=deals.id) AND deals.expires_at > ?"
             filter_params = [timestamp()]
+        elif status == "expired":
+            where = f"WHERE {expired_sql}"
+            filter_params = [timestamp()]
+            order_by = "deals.expires_at DESC"
         total = db.execute(
             f"SELECT COUNT(*) AS total FROM deals {where}", filter_params
         ).fetchone()["total"]
@@ -2920,7 +2943,7 @@ def create_app(test_config=None):
             f"""SELECT deals.*, businesses.name AS business_name, businesses.wallet_balance,
                        businesses.is_approved AS business_approved, businesses.is_blocked
                 FROM deals JOIN businesses ON businesses.id = deals.business_id
-                {where} ORDER BY deals.created_at DESC LIMIT ? OFFSET ?""",
+                {where} ORDER BY {order_by} LIMIT ? OFFSET ?""",
             (*filter_params, per_page, offset),
         ).fetchall()
         return render_template("admin_deals.html", deals=deals, status=status, page=page, counts=counts,
@@ -3045,6 +3068,65 @@ def create_app(test_config=None):
         record_admin_action("archive_deal", "deal", deal_id, deal["title"])
         flash("Deal archived.", "success")
         return redirect(url_for("admin_deals", status="all"))
+
+    @app.post("/admin/deals/renew-expired")
+    @roles_required("admin")
+    def renew_expired_deals():
+        back = url_for("admin_deals", status="expired")
+        try:
+            days = int(request.form.get("days", str(MAX_VENDOR_DEAL_DAYS)))
+        except ValueError:
+            days = 0
+        if not 1 <= days <= MAX_VENDOR_DEAL_DAYS:
+            flash(f"Choose 1 to {MAX_VENDOR_DEAL_DAYS} days for the renewal.", "danger")
+            return redirect(back)
+        db = get_db()
+        now = timestamp()
+        expires_at = timestamp(utcnow() + timedelta(days=days))
+        expired = db.execute(
+            f"""SELECT deals.* FROM deals WHERE {PUBLISHED_DEALS_SQL} AND deals.expires_at <= ?
+                ORDER BY deals.expires_at""",
+            (now,),
+        ).fetchall()
+        businesses = {}
+        renewed = {}
+        skipped = {"business": 0, "wallet": 0, "sold_out": 0}
+        for deal in expired:
+            business = businesses.get(deal["business_id"])
+            if business is None:
+                business = businesses[deal["business_id"]] = db.execute("SELECT * FROM businesses WHERE id = ?", (deal["business_id"],)).fetchone()
+            fee = deal["redemption_fee"] if deal["redemption_fee"] is not None else redemption_fee(db, business)
+            # Same checks as renewing one deal; a sold-out deal needs a new voucher total, so it is renewed on its own.
+            if not business["is_approved"] or business["is_blocked"]:
+                skipped["business"] += 1
+            elif business["wallet_balance"] < fee:
+                skipped["wallet"] += 1
+            elif voucher_stock_remaining(db, deal) == 0:
+                skipped["sold_out"] += 1
+            else:
+                db.execute(
+                    """UPDATE deals SET expires_at = ?, review_status = 'approved', review_reason = NULL,
+                       approved_at = ?, approved_by = ?, renewal_requested_at = NULL, renewal_days = NULL WHERE id = ?""",
+                    (expires_at, now, current_user()["id"], deal["id"]),
+                )
+                record_admin_action("renew_deal", "deal", deal["id"], f"Renewed for {days} days with all expired deals")
+                renewed.setdefault(deal["business_id"], []).append(deal["title"])
+        for business_id, titles in renewed.items():
+            listed = ", ".join(f"'{title}'" for title in titles)
+            notify_business(business_id, "Deal renewed", f"An administrator renewed your expired {'deal' if len(titles) == 1 else 'deals'} {listed}. {'It is' if len(titles) == 1 else 'They are'} live again until {expires_at[:10]}.", "success")
+        count = sum(len(titles) for titles in renewed.values())
+        if count:
+            flash(f"Renewed {count} expired deal{'s' if count != 1 else ''} for {days} day{'s' if days != 1 else ''}. {'It is' if count == 1 else 'They are'} live again and listed as new.", "success")
+        elif not expired:
+            flash("There are no expired deals to renew.", "info")
+        reasons = [
+            f"{skipped['business']} because the business is not approved or is blocked" if skipped["business"] else "",
+            f"{skipped['wallet']} because the business wallet cannot cover the redemption fee" if skipped["wallet"] else "",
+            f"{skipped['sold_out']} because all vouchers were used (renew those one by one to set a new voucher total)" if skipped["sold_out"] else "",
+        ]
+        if any(reasons):
+            flash("Not renewed: " + "; ".join(reason for reason in reasons if reason) + ".", "warning")
+        return redirect(back)
 
     @app.route("/admin/users")
     @roles_required("admin")

@@ -28,6 +28,9 @@ document.addEventListener("DOMContentLoaded", () => {
     let selectedFiles = [];
     const counter = document.getElementById("deal-image-limit");
     const addMore = document.getElementById("deal-add-image");
+    // When editing, the deal's current photos count toward the five-photo limit.
+    const existing = input.form?.querySelector("[data-existing-images]");
+    const existingCount = () => existing ? existing.querySelectorAll("figure").length : 0;
 
     const syncInputFiles = () => {
       const transfer = new DataTransfer();
@@ -62,12 +65,14 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       preview.hidden = selectedFiles.length === 0;
       preview.setAttribute("aria-hidden", selectedFiles.length === 0 ? "true" : "false");
+      const total = existingCount() + selectedFiles.length;
+      if (existing) existing.hidden = existingCount() === 0;
       if (counter) {
-        counter.textContent = `${selectedFiles.length} of 5 images selected`;
+        counter.textContent = `${total} of 5 images selected`;
         counter.classList.remove("is-error");
       }
       if (addMore) {
-        addMore.disabled = selectedFiles.length >= 5;
+        addMore.disabled = total >= 5;
         addMore.setAttribute("aria-disabled", addMore.disabled ? "true" : "false");
         addMore.innerHTML = addMore.disabled ? '<i class="bi bi-check2"></i> 5 images complete' : '<i class="bi bi-plus-lg"></i> Add more images';
       }
@@ -75,7 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     input.addEventListener("change", async () => {
       const incoming = Array.from(input.files || []).filter((file) => file.type.startsWith("image/"));
-      const available = Math.max(0, 5 - selectedFiles.length);
+      const available = Math.max(0, 5 - existingCount() - selectedFiles.length);
       let accepted = incoming.slice(0, available);
       // Restored drafts are already cropped; new picks go through the cropper.
       if (window.ldCropImages && !input.dataset.skipCrop) accepted = await window.ldCropImages(accepted);
@@ -89,7 +94,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
     addMore?.addEventListener("click", () => {
-      if (selectedFiles.length < 5) input.click();
+      if (existingCount() + selectedFiles.length < 5) input.click();
     });
+    existing?.querySelectorAll("[data-remove-existing]").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.closest("figure")?.remove();
+        renderPreviews();
+      });
+    });
+    if (existing) renderPreviews();
   });
 });

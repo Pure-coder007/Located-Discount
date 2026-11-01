@@ -2,7 +2,7 @@
 import re
 from urllib.parse import urlencode
 from flask import jsonify, redirect, request, url_for
-from .discovery import location_terms, location_match_sql
+from .discovery import NEWEST_DEALS_FIRST, location_terms, location_match_sql
 
 FAQS = [
     (('voucher', 'claim', 'generate', 'code', 'how it works'), 'To claim an offer, open a live deal and select Get voucher. Enter how many vouchers you need, up to the available stock, provide your name and phone on your first claim, and optionally rate the deal with stars. Your QR and text voucher appear immediately. Pay the discounted total at the shop and let that business validate your voucher once.', 'My vouchers', 'my_codes'),
@@ -76,7 +76,7 @@ def register_support(app, get_db, timestamp, days_left, voucher_remaining):
             places = [dict(name=row['name'], category=row['category'], address=row['address'], city=row['city'], hours=row['opening_hours'], phone=row['phone'], url=url_for('vendor_detail', business_id=row['id'])) for row in vendors]
         count = db.execute('SELECT COUNT(*) total ' + base + extra, params).fetchone()['total']
         total = db.execute('SELECT COUNT(*) total ' + base, [timestamp()]).fetchone()['total']
-        order = 'deals.expires_at ASC' if show_expiring else 'deals.created_at DESC, deals.id'
+        order = 'deals.expires_at ASC' if show_expiring else f'{NEWEST_DEALS_FIRST}, deals.id'
         rows = db.execute('''SELECT deals.*, businesses.name business_name, businesses.address,
                   businesses.city, businesses.opening_hours, users.phone business_phone,
                   (SELECT secure_url FROM deal_images WHERE deal_id = deals.id ORDER BY sort_order, id LIMIT 1) image_secure_url,
